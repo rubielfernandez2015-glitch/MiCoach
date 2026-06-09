@@ -1,0 +1,7 @@
+# Ajustes locales de Claude / herramientas — no desplegar
+.claude/
+.vercel/
+
+# Sistema
+.DS_Store
+Thumbs.db

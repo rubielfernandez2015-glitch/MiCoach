@@ -525,7 +525,7 @@ function dateKey(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2
 const todayKey = () => dateKey(new Date());
 
 function freshLog(){return {
-  date:todayKey(), meals:[], totalCalories:0, totalProtein:0,
+  date:todayKey(), meals:[], skippedMeals:[], totalCalories:0, totalProtein:0,
   drankAlcohol:false, alcoholCount:0, alcoholCal:0,
   exercised:false, exerciseType:'', exerciseCal:0,
   gymSkipped:false, gymDone:false, cardioDone:false
@@ -811,7 +811,7 @@ function scheduleMealReminders(){
   if(!lsGet("reminders")||!("Notification" in window)||Notification.permission!=="granted")return;
   const now=new Date(), meals=(dailyPlan&&dailyPlan.meals)||[];
   meals.forEach(s=>{
-    if(isMealDone(s.id))return;
+    if(isMealDone(s.id)||isMealSkipped(s.id))return;
     const p=s.time.split(":"), when=new Date();
     when.setHours(parseInt(p[0])||0,parseInt(p[1])||0,0,0);
     const delay=when-now;
@@ -1099,6 +1099,7 @@ ${past.slice(0,5).map(l=>`${l.date}: ${l.totalCalories}kcal ${l.totalProtein}g-p
 HOY (${todayKey()}): ${workout.emoji} Workout: ${workout.name} | ${todayLog.gymDone?"✅ GYM HECHO":todayLog.gymSkipped?"❌ Gym saltado (se reprograma mañana)":"⏳ Gym pendiente"}
 ${todayLog.meals.length>0?`Comidas: ${todayLog.meals.map(m=>`${m.time} ${m.description}(${m.calories}kcal,${m.protein}g)`).join("; ")}`:"Sin comidas aún"}
 HORARIO DE COMIDAS HOY (horas reales del plan): ${(dailyPlan&&dailyPlan.meals||[]).map(m=>`${m.time} ${m.name.replace(/^[^\s]+\s/,'')}`).join(" | ")}
+${(todayLog.skippedMeals&&todayLog.skippedMeals.length)?`COMIDAS SALTADAS HOY (el usuario decidió NO comerlas): ${todayLog.skippedMeals.map(id=>{const s=(dailyPlan&&dailyPlan.meals||[]).find(x=>x.id===id);return s?s.time+" "+s.name.replace(/^[^\s]+\s/,''):id;}).join(", ")}. Su proteína ya se repartió en las comidas que quedan; las calorías se dejaron caer como déficit del día. No le insistas en recuperarlas salvo que pregunte.`:""}
 ${lsGet("plan-anchor-"+todayKey())?`⏰ El usuario se levantó ~${lsGet("plan-anchor-"+todayKey())}; las horas de arriba YA están recalculadas desde esa hora. Usa ESAS horas, no las de la rutina por defecto.`:""}
 Consumido: ${todayLog.totalCalories}kcal / ${budget}kcal · Proteína: ${todayLog.totalProtein}g/${PROFILE.targetProtein}g · Quedan: ${calLeft}kcal
 ${todayLog.drankAlcohol?`⚠️ Alcohol: ${todayLog.alcoholCount} tragos (~${todayLog.alcoholCal}kcal)`:""}
@@ -1382,7 +1383,7 @@ function getHealthPlan(){
   const protGap=Math.max(0,PROFILE.targetProtein-todayLog.totalProtein);
   const wt=getTodayWorkoutType();
   const isGymDay=(wt!=='WALK'&&wt!=='REST');
-  const mealsLeft=(dailyPlan.meals||[]).filter(s=>!isMealDone(s.id)).length;
+  const mealsLeft=(dailyPlan.meals||[]).filter(s=>!isMealDone(s.id)&&!isMealSkipped(s.id)).length;
   // — Base diaria (siempre) —
   items.push({id:"creatina",emoji:"💪",name:"Creatina monohidrato",dose:"5 g",why:"Base diaria para fuerza y músculo. Segura incluso en déficit."});
   items.push({id:"vitd",emoji:"☀️",name:"Vitamina D3",dose:"1000–2000 UI",why:"Tu horario nocturno = poco sol. Apoya ánimo, energía y hueso."});
@@ -1476,6 +1477,7 @@ function deleteMed(id){
 // PLAN CHECKLIST (Fase 1)
 // ══════════════════════════════════════════════════════
 function isMealDone(id){return todayLog.meals.some(m=>m.planId===id);}
+function isMealSkipped(id){return (todayLog.skippedMeals||[]).includes(id);}
 
 // Chip de calidad nutricional (Coach-B)
 function qualityChip(q){
@@ -1490,9 +1492,21 @@ function getAdjustedPlan(){
   const budget=getTotalCalBudget();
   const protTarget=PROFILE.targetProtein;
   const meals=dailyPlan.meals||[];
-  const remaining=meals.filter(s=>!isMealDone(s.id));
-  const remCal=budget-todayLog.totalCalories;
+  // Comidas que aún tocan (ni comidas ni saltadas) y comidas que el usuario decidió saltar.
+  const remaining=meals.filter(s=>!isMealDone(s.id)&&!isMealSkipped(s.id));
+  const skipped=meals.filter(s=>!isMealDone(s.id)&&isMealSkipped(s.id));
+  const rawRemCal=budget-todayLog.totalCalories; // lo que faltaría para CERRAR el presupuesto
   const remProt=protTarget-todayLog.totalProtein;
+  // — "El coach decide" con lo saltado —
+  // PROTEÍNA: siempre se protege → remProt se reparte ENTERA entre lo que queda (prioridad recomp).
+  // CALORÍAS: se dejan caer como déficit (restamos la parte base de lo saltado = comer menos hoy),
+  //           salvo que eso deje el día por debajo del 80% del presupuesto → ahí reparte algo
+  //           para que no te quedes demasiado corto.
+  const skippedCal=skipped.reduce((a,s)=>a+s.cal,0);
+  const floorCal=Math.round(budget*0.8)-todayLog.totalCalories; // mínimo para cerrar al ~80% del día
+  let remCal=rawRemCal-skippedCal;     // saltar = comer menos
+  remCal=Math.max(remCal,floorCal);    // …pero no por debajo del 80% (reparte parte si el déficit es grande)
+  remCal=Math.min(remCal,rawRemCal);   // nunca por encima del presupuesto real (no fuerza comer de más)
   const sumBaseCal=remaining.reduce((a,s)=>a+s.cal,0)||1;
   const sumBaseProt=remaining.reduce((a,s)=>a+s.prot,0)||1;
   const adj={};
@@ -1515,7 +1529,8 @@ function getAdjustedPlan(){
       adj[first].prot=Math.max(0,adj[first].prot+diffP);
     }
   }
-  return {adj, remCal, remProt:Math.max(0,remProt), remainingCount:remaining.length, budget, protTarget, over:remCal<0};
+  return {adj, remCal, remProt:Math.max(0,remProt), remainingCount:remaining.length,
+          skippedCount:skipped.length, budget, protTarget, over:remCal<0};
 }
 
 function planExerciseInfo(){
@@ -1538,7 +1553,7 @@ function renderPlan(){
   const ex=planExerciseInfo();
   const trackEx=ex.kind!=='rest';
   const meals=dailyPlan.meals||[];
-  const required=meals.filter(s=>!s.optional); // la comida opcional no cuenta en el %
+  const required=meals.filter(s=>!s.optional&&!isMealSkipped(s.id)); // opcional y saltadas no cuentan en el %
   const doneMeals=required.filter(s=>isMealDone(s.id)).length;
   const totalItems=required.length+(trackEx?1:0);
   const doneItems=doneMeals+((trackEx&&ex.done)?1:0);
@@ -1586,13 +1601,34 @@ function renderPlan(){
         : `🔄 Te quedan <b>${plan.remCal} kcal</b> y <b>${plan.remProt}g proteína</b> para ${plan.remainingCount} comida(s). Reparto recalculado en vivo.`}
     </div>`;
   }
+  // Aviso de comidas saltadas (Coach decide): proteína protegida, calorías como déficit.
+  if(plan.skippedCount>0){
+    const proj=todayLog.totalCalories+Math.max(0,plan.remCal);
+    const deficit=Math.max(0,plan.budget-proj);
+    html+=`<div style="padding:9px 12px;border-radius:10px;margin-bottom:8px;font-size:11.5px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.09);color:#9ab">
+      ⊘ ${plan.skippedCount} comida(s) saltada(s): <b>mantengo tu proteína</b>${deficit>=50?` y hoy cierras ~<b>${Math.round(deficit/10)*10} kcal</b> por debajo, sin culpa.`:` y reparto las calorías en lo que queda.`}</div>`;
+  }
   // Meal rows
   meals.forEach(s=>{
     const done=isMealDone(s.id);
+    const skipped=!done && isMealSkipped(s.id);
+    const isFast=(s.cal===0); // café / ayuno: sin calorías ni foto
+    // Comida saltada: tarjeta gris/tachada, reversible. No cuenta para hoy.
+    if(skipped){
+      const nm=`${s.time} · ${s.name.replace(/^[^\s]+\s/,'')}`;
+      html+=`<div class="card" style="display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:8px;opacity:.5">
+        <button onclick="toggleSkipMeal('${s.id}')" title="Retomar" style="width:26px;height:26px;border-radius:8px;flex-shrink:0;border:2px solid rgba(255,255,255,.18);background:transparent;color:#999;font-size:14px;display:flex;align-items:center;justify-content:center">⊘</button>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13.5px;font-weight:600;text-decoration:line-through;color:#888">${nm}</div>
+          <div style="font-size:11.5px;color:#777;margin-top:2px">Saltada · no cuenta para hoy</div>
+        </div>
+        <button onclick="toggleSkipMeal('${s.id}')" style="font-size:11px;color:#9fd0ff;background:none;padding:0;flex-shrink:0">↩︎ retomar</button>
+      </div>`;
+      return;
+    }
     const logged=todayLog.meals.find(m=>m.planId===s.id);
     const a=plan.adj[s.id];
     const cal=logged?logged.calories:(a?a.cal:s.cal), prot=logged?(logged.prot??logged.protein):(a?a.prot:s.prot);
-    const isFast=(s.cal===0); // café / ayuno: sin calorías ni foto
     let actions='';
     if(!isFast){
       if(analyzingSlot===s.id){
@@ -1601,6 +1637,7 @@ function renderPlan(){
         actions=`<button onclick="changePlanMealPhoto('${s.id}')" style="display:block;margin-top:4px;font-size:11px;color:#63ffb4;background:none;padding:0">📷 cambiar</button>`;
       }
       actions+=`<button onclick="openRecipeFor('${s.id}')" style="display:block;margin-top:4px;font-size:11px;color:#9fd0ff;background:none;padding:0">🍴 ver receta</button>`;
+      if(!done) actions+=`<button onclick="toggleSkipMeal('${s.id}')" style="display:block;margin-top:4px;font-size:11px;color:#ff9b9b;background:none;padding:0">⊘ saltar</button>`;
     }
     const sub=logged
       ? `✅ ${escHtml(logged.description.replace(/^.*—\s*/,''))}`
@@ -1611,7 +1648,7 @@ function renderPlan(){
       : `<div style="font-size:13px;font-weight:700;color:#ffa94d">${cal} kcal</div><div style="font-size:11px;color:#63ffb4">${prot}g</div>`;
     html+=row(done, "", title, sub, right, `togglePlanMeal('${s.id}')`, actions);
   });
-  html+=`<div style="font-size:11px;color:#666;text-align:center;margin:2px 0 4px">Toca ✓ para marcar lo planeado, o 📷 si comiste otra cosa. El plan se recalcula solo según lo que vas comiendo.</div>`;
+  html+=`<div style="font-size:11px;color:#666;text-align:center;margin:2px 0 4px">Toca ✓ si la comiste, 📷 si comiste otra cosa, o ⊘ si te la brincas. El plan se recalcula solo: tu proteína se protege y las calorías que saltas se dejan caer como déficit.</div>`;
   document.getElementById("plan-list").innerHTML=html;
 }
 
@@ -1619,7 +1656,7 @@ function renderPlan(){
 function renderNextMeal(){
   const el=document.getElementById("next-meal");if(!el)return;
   const meals=(dailyPlan&&dailyPlan.meals)||[];
-  const pending=meals.filter(s=>!isMealDone(s.id));
+  const pending=meals.filter(s=>!isMealDone(s.id)&&!isMealSkipped(s.id));
   if(pending.length===0){el.innerHTML="";return;}
   const now=new Date(), nowMin=now.getHours()*60+now.getMinutes();
   const next=pending.find(s=>toMin(s.time)>=nowMin)||pending[0];
@@ -1640,10 +1677,28 @@ function togglePlanMeal(id){
     todayLog.meals.splice(idx,1);
   } else {
     // Marca como comido usando el valor RECALCULADO en vivo (Coach-A)
+    if(todayLog.skippedMeals){const si=todayLog.skippedMeals.indexOf(id);if(si>=0)todayLog.skippedMeals.splice(si,1);} // comer cancela "saltada"
     const a=getAdjustedPlan().adj[id]||{cal:slot.cal,prot:slot.prot};
     const now=new Date(),time=now.getHours()+":"+(now.getMinutes()<10?"0":"")+now.getMinutes();
     todayLog.meals.push({time,description:slot.name+" — "+slot.suggest,calories:a.cal,protein:a.prot,planId:id});
     todayLog.totalCalories+=a.cal;todayLog.totalProtein+=a.prot;
+  }
+  lsSet("log-"+todayKey(),todayLog);updateTodayUI();
+}
+
+// Tercer estado de una comida: "saltada" (espejo de gymSkipped). Reversible.
+// Saltar = no la vas a comer: sale del % y del reparto de calorías; la proteína se protege en getAdjustedPlan.
+function toggleSkipMeal(id){
+  const slot=dailyPlan.meals.find(s=>s.id===id);if(!slot)return;
+  if(!todayLog.skippedMeals)todayLog.skippedMeals=[];
+  const i=todayLog.skippedMeals.indexOf(id);
+  if(i>=0){
+    todayLog.skippedMeals.splice(i,1); // retomar
+  } else {
+    // Si estaba marcada como comida, primero la des-registramos (saltar ≠ comer).
+    const mi=todayLog.meals.findIndex(m=>m.planId===id);
+    if(mi>=0){const m=todayLog.meals[mi];todayLog.totalCalories-=m.calories;todayLog.totalProtein-=m.protein;todayLog.meals.splice(mi,1);}
+    todayLog.skippedMeals.push(id);
   }
   lsSet("log-"+todayKey(),todayLog);updateTodayUI();
 }
@@ -1720,7 +1775,7 @@ function applyWakeTime(hhmm){
 function nearestPlanSlot(){
   const meals=(dailyPlan&&dailyPlan.meals)||[];
   const now=new Date(), nowMin=now.getHours()*60+now.getMinutes();
-  const cands=meals.filter(s=>s.cal>0 && !isMealDone(s.id)); // descarta café/ayuno y comidas ya marcadas
+  const cands=meals.filter(s=>s.cal>0 && !isMealDone(s.id) && !isMealSkipped(s.id)); // descarta café/ayuno, comidas hechas y saltadas
   if(!cands.length) return null;
   return cands.reduce((best,s)=>
     Math.abs(toMin(s.time)-nowMin)<Math.abs(toMin(best.time)-nowMin)?s:best);
@@ -1742,6 +1797,7 @@ function logFoodEntry(desc,cal,prot,quality){
 }
 
 function setPlanMeal(id,desc,cal,prot,quality){
+  if(todayLog.skippedMeals){const si=todayLog.skippedMeals.indexOf(id);if(si>=0)todayLog.skippedMeals.splice(si,1);} // registrar comida cancela "saltada"
   const idx=todayLog.meals.findIndex(m=>m.planId===id);
   if(idx>=0){
     const old=todayLog.meals[idx];

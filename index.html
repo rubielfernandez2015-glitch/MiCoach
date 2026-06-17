@@ -522,7 +522,13 @@ function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
 // ══════════════════════════════════════════════════════
 // Fecha YYYY-MM-DD en hora LOCAL (no UTC) — evita que tras medianoche la app crea que es el día anterior.
 function dateKey(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
-const todayKey = () => dateKey(new Date());
+// Día "lógico": el horario de Rubiel es nocturno (duerme ~3am-11am). El día NO cambia a medianoche
+// sino a las 5am, así una comida de madrugada (00:00-04:59) cuenta para el día anterior en vez de
+// abrir un día nuevo vacío. Todo lo que decide "qué día es" (log/plan/chat/semana/rutina) usa logicalNow();
+// el reloj REAL se mantiene para horas de comida, recordatorios y marcas de tiempo.
+const DAY_CUTOFF_HOUR = 5;
+function logicalNow(){ const d=new Date(); d.setHours(d.getHours()-DAY_CUTOFF_HOUR); return d; }
+const todayKey = () => dateKey(logicalNow());
 
 function freshLog(){return {
   date:todayKey(), meals:[], skippedMeals:[], totalCalories:0, totalProtein:0,
@@ -560,7 +566,7 @@ function mealTimes(startStr,endStr,n){
 // "Empezar ahora" desplaza TODO el día respecto a la 1ª franja (café).
 const PLAN_VERSION=3; // súbelo si cambia la estructura de MEAL_SLOTS, para regenerar planes guardados
 function buildPlan(seed){
-  const day=new Date().getDate();
+  const day=logicalNow().getDate();
   const anchor=lsGet("plan-anchor-"+todayKey());
   const delta=anchor?(toMin(anchor)-toMin(MEAL_SLOTS[0].time)):0;
   // El +i desacopla cada franja: no rotan todas en bloque, así hay muchos más menús distintos.
@@ -581,7 +587,7 @@ function generatePlan(){
 let dailyPlan = generatePlan();
 
 function getWeekKey(){
-  const d=new Date(), day=d.getDay(), diff=d.getDate()-day+(day===0?-6:1);
+  const d=logicalNow(), day=d.getDay(), diff=d.getDate()-day+(day===0?-6:1);
   return dateKey(new Date(d.setDate(diff)));
 }
 
@@ -611,8 +617,8 @@ function getTodayWorkoutType(){
   // Entreno reprogramado tiene prioridad
   const override=lsGet("gym-override-"+todayKey());
   if(override) return override;
-  const dow=new Date().getDay(); // 0=Dom,1=Lun,...
-  if(GYM_SCHEDULE[dow]) return gymWorkoutFor(new Date()); // día de gym → rotación
+  const dow=logicalNow().getDay(); // 0=Dom,1=Lun,...
+  if(GYM_SCHEDULE[dow]) return gymWorkoutFor(logicalNow()); // día de gym → rotación
   if(dow===0) return 'REST';                              // domingo → descanso total
   return 'WALK';                                          // resto → caminata
 }
@@ -690,7 +696,7 @@ document.addEventListener("DOMContentLoaded", function(){
   // Recupera gyms pasados no realizados (antes de pintar la UI, para que HOY ya muestre el gym recuperado).
   const _recovered=catchUpMissedGym();
   document.getElementById("today-date").textContent =
-    new Date().toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"});
+    logicalNow().toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"});
 
   if(chatHistory.length>0){
     chatHistory.forEach(m=>renderMsg(m.role,m.content,m.img,false));
@@ -1072,9 +1078,9 @@ function clearImg(){imgB64=null;document.getElementById("img-preview-bar").style
 function buildPrompt(){
   const budget = getTotalCalBudget();
   const calLeft = Math.max(0, budget - todayLog.totalCalories);
-  const dow = new Date().getDay();
+  const dow = logicalNow().getDay();
   const days=[];
-  for(let i=1;i<=7;i++){const d=new Date();d.setDate(d.getDate()-i);days.push(dateKey(d));}
+  for(let i=1;i<=7;i++){const d=logicalNow();d.setDate(d.getDate()-i);days.push(dateKey(d));}
   const past=days.map(d=>lsGet("log-"+d)).filter(l=>l&&l.meals&&l.meals.length>0);
   const avgCal=past.length>0?Math.round(past.reduce((s,l)=>s+l.totalCalories,0)/past.length):null;
   const avgProt=past.length>0?Math.round(past.reduce((s,l)=>s+l.totalProtein,0)/past.length):null;
@@ -1085,7 +1091,7 @@ function buildPrompt(){
   const wk=getWeekStatus();
   const skipsThisWeek=lsGet("gym-skips-"+getWeekKey())||0;
 
-  return `Eres el entrenador personal de Rubiel, 34 años, 1.80m, empezó en 83.4kg. Meta: perder grasa abdominal y ganar definición muscular. Horario nocturno: duerme ~3am-11am; al despertar (11am) solo café negro sin azúcar manteniendo el ayuno; primera comida (rompe-ayuno fuerte) 2:30pm; pre-entreno ~5pm; gym ~6pm; cena fuerte 8-9pm; comida ligera opcional con caseína 10-11pm si tiene hambre. Ventana de comida 2:30pm-~11pm. Tiene gimnasio en el edificio con equipos completos. Gym 3x/semana (Lun/Mié/Vie) con un programa ROTATIVO de 5 rutinas (A:Pecho+Tríceps, B:Espalda+Bíceps, C:Piernas+Hombros, D:Full-body Funcional, E:Core+Cardio) que avanza cada sesión para dar variedad. Mar/Jue/Sáb = caminata (~8,000 pasos, recuperación activa). Domingo = descanso total.
+  return `Eres el entrenador personal de Rubiel, 34 años, 1.80m, empezó en 83.4kg. Meta: perder grasa abdominal y ganar definición muscular. Horario nocturno: duerme ~3am-11am; al despertar (11am) solo café negro sin azúcar manteniendo el ayuno; primera comida (rompe-ayuno fuerte) 2:30pm; pre-entreno ~5pm; gym ~6pm; cena fuerte 8-9pm; comida ligera opcional con caseína 10-11pm si tiene hambre. Ventana de comida 2:30pm-~11pm. Tiene gimnasio en el edificio con equipos completos. Gym 3x/semana (Lun/Mié/Vie) con un programa ROTATIVO de 5 rutinas (A:Pecho+Tríceps, B:Espalda+Bíceps, C:Piernas+Hombros, D:Full-body Funcional, E:Core+Cardio) que avanza cada sesión para dar variedad. Mar/Jue/Sáb = caminata (~8,000 pasos, recuperación activa). Domingo = descanso total. IMPORTANTE: el día cuenta hasta las 5am (no medianoche). Una comida registrada de madrugada (12am-5am) pertenece al día anterior, no abre uno nuevo — la app ya la suma al día correcto. Si el usuario dice que algo que comió tarde es "de ayer", confírmale que sí cuenta para ese día y que su presupuesto de hoy se ajusta solo con el balance semanal.
 
 METAS: ${PROFILE.targetCalories}kcal base · ${PROFILE.targetProtein}g proteína · Déficit ~400kcal/día
 PRESUPUESTO HOY: ${budget}kcal (ajustado por ejercicio${todayLog.gymDone?` +${workout.calBurn||300}kcal gym`:""}${todayLog.cardioDone?" +150kcal cardio":""}${todayLog.alcoholCal>0?` -${todayLog.alcoholCal}kcal alcohol`:""})
@@ -1777,8 +1783,11 @@ function nearestPlanSlot(){
   const now=new Date(), nowMin=now.getHours()*60+now.getMinutes();
   const cands=meals.filter(s=>s.cal>0 && !isMealDone(s.id) && !isMealSkipped(s.id)); // descarta café/ayuno, comidas hechas y saltadas
   if(!cands.length) return null;
+  // Distancia en reloj de 24h (circular): a la 1am la franja más cercana es la cena/ligera de la
+  // noche (22:30), NO el rompe-ayuno de las 14:30. Evita que una comida tardía tache el desayuno.
+  const circDist=(a,b)=>{const d=Math.abs(a-b)%1440;return Math.min(d,1440-d);};
   return cands.reduce((best,s)=>
-    Math.abs(toMin(s.time)-nowMin)<Math.abs(toMin(best.time)-nowMin)?s:best);
+    circDist(toMin(s.time),nowMin)<circDist(toMin(best.time),nowMin)?s:best);
 }
 
 // Registra una comida (de foto o texto) enganchándola al slot del plan que toca, o suelta si no hay.
@@ -1915,7 +1924,7 @@ function closeModify(){document.getElementById("modal-modify").classList.remove(
 // días respecto a hoy. startOffset=0 permite recuperar HOY mismo; =1 empieza desde mañana.
 function nextFreeSlot(startOffset){
   for(let i=(startOffset==null?1:startOffset);i<=10;i++){
-    const d=new Date();d.setDate(d.getDate()+i);
+    const d=logicalNow();d.setDate(d.getDate()+i);
     const k=dateKey(d);
     if(!GYM_SCHEDULE[d.getDay()] && !lsGet("gym-override-"+k)) return {d,k};
   }
@@ -1936,7 +1945,7 @@ function catchUpMissedGym(){
   const moved=[];
   const start=new Date(gymProgramStart()+"T12:00:00");
   for(let i=7;i>=1;i--){                                  // de más antiguo a más reciente (última semana)
-    const d=new Date();d.setDate(d.getDate()-i);
+    const d=logicalNow();d.setDate(d.getDate()-i);
     if(d<start) continue;                                 // antes de empezar el programa: ignora
     if(!GYM_SCHEDULE[d.getDay()]) continue;               // solo días de gym del calendario
     const k=dateKey(d);
@@ -2318,7 +2327,7 @@ function updateProgressUI(){
   renderWeeklyReport();
   // Weekly deficit summary
   const days7=[];
-  for(let i=0;i<7;i++){const d=new Date();d.setDate(d.getDate()-i);days7.push(dateKey(d));}
+  for(let i=0;i<7;i++){const d=logicalNow();d.setDate(d.getDate()-i);days7.push(dateKey(d));}
   const wk=getWeekStatus();
   const bal=wk.pastSurplus;
   const wdc=document.getElementById("week-deficit-card");

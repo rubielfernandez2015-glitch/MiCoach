@@ -242,7 +242,8 @@ details[open] summary .chev{transform:rotate(90deg)}
   <div class="modal-box">
     <div id="log-title" style="font-size:17px;font-weight:700;margin-bottom:4px">Registrar comida</div>
     <div class="field-label">Descripción</div>
-    <input class="field-input" id="log-desc" placeholder="Ej: Pollo a la plancha con arroz">
+    <input class="field-input" id="log-desc" placeholder="Ej: 5 galletas de sal con leche condensada">
+    <button id="log-calc-btn" onclick="calcLogMeal()" style="width:100%;padding:11px;margin-top:6px;border-radius:12px;background:rgba(99,255,180,.1);border:1px solid rgba(99,255,180,.25);color:#63ffb4;font-size:13px;font-weight:600">🧮 Calcular calorías y proteína</button>
     <div class="field-label">Calorías aprox.</div>
     <input class="field-input" id="log-cal" type="number" placeholder="Ej: 450">
     <div class="field-label">Proteína en gramos aprox.</div>
@@ -2134,6 +2135,29 @@ function confirmAlcohol(){
 function setLogQuality(q){
   logQuality=q;
   document.querySelectorAll("#log-quality-row .qbtn").forEach(b=>b.classList.toggle("sel",b.dataset.q===q));
+}
+
+async function calcLogMeal(){
+  const desc=(document.getElementById("log-desc").value||"").trim();
+  if(!desc){alert("Escribe primero qué comiste.");return;}
+  if(!getApiKey()){alert("Primero configura tu API key de Gemini.");return;}
+  const btn=document.getElementById("log-calc-btn");
+  btn.textContent="⏳ Calculando…";btn.disabled=true;
+  try{
+    const prompt=`Estima los valores nutricionales de esta comida/snack: "${desc}". Considera las cantidades mencionadas. Responde SOLO un objeto JSON sin texto extra: {"calorias":ENTERO,"proteina":GRAMOS_ENTEROS,"calidad":"alta|media|baja"}`;
+    const data=await geminiCall({contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:200,temperature:0.2,thinkingConfig:{thinkingBudget:0}}});
+    let txt=(data.candidates&&data.candidates[0]&&data.candidates[0].content&&data.candidates[0].content.parts?data.candidates[0].content.parts.map(p=>p.text||"").join(""):"");
+    txt=txt.replace(/```json/gi,"").replace(/```/g,"").trim();
+    const jm=txt.match(/\{[\s\S]*\}/);
+    if(jm){
+      const o=JSON.parse(jm[0]);
+      const cal=parseInt(o.calorias??o.calories??o.cal), prot=parseInt(o.proteina??o.protein??o.prot);
+      if(!isNaN(cal)) document.getElementById("log-cal").value=cal;
+      if(!isNaN(prot)) document.getElementById("log-prot").value=prot;
+      if(o.calidad||o.quality) setLogQuality(normQuality(o.calidad||o.quality));
+    } else { alert("No pude estimar — intenta describir mejor la comida."); }
+  }catch(e){ alert("Error: "+e.message); }
+  btn.textContent="🧮 Calcular calorías y proteína";btn.disabled=false;
 }
 
 function openLog(){

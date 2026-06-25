@@ -357,6 +357,28 @@ details[open] summary .chev{transform:rotate(90deg)}
   </div>
 </div>
 
+<!-- MODAL: Confirmar foto de comida del plan -->
+<div id="modal-photo-confirm" class="modal-overlay">
+  <div class="modal-box">
+    <div style="font-size:17px;font-weight:700;margin-bottom:4px">📷 Confirmar comida</div>
+    <div style="font-size:13px;color:#888;margin-bottom:12px">Gemini identificó esto. Corrige si algo está mal.</div>
+    <div class="field-label">Nombre del plato</div>
+    <input class="field-input" id="pc-name" placeholder="Ej: Pescado a la plancha con arroz">
+    <div style="display:flex;gap:10px">
+      <div style="flex:1"><div class="field-label">Calorías</div><input class="field-input" id="pc-cal" type="number"></div>
+      <div style="flex:1"><div class="field-label">Proteína (g)</div><input class="field-input" id="pc-prot" type="number"></div>
+    </div>
+    <div class="field-label">Calidad nutricional</div>
+    <div id="pc-quality-row" style="display:flex;gap:8px">
+      <button type="button" data-q="alta" onclick="setPhotoConfirmQuality('alta')" class="qbtn">🟢 Alta</button>
+      <button type="button" data-q="media" onclick="setPhotoConfirmQuality('media')" class="qbtn">🟡 Media</button>
+      <button type="button" data-q="baja" onclick="setPhotoConfirmQuality('baja')" class="qbtn">🔴 Baja</button>
+    </div>
+    <button onclick="confirmPhotoMeal()" class="btn-primary">✅ Guardar comida</button>
+    <button onclick="closePhotoConfirm()" class="btn-secondary" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888">Cancelar</button>
+  </div>
+</div>
+
 <!-- MODAL: Medicamento / suplemento propio -->
 <div id="modal-med" class="modal-overlay" onclick="if(event.target===this)closeMed()">
   <div class="modal-box">
@@ -549,6 +571,9 @@ let editingMealIdx = null; // índice de una comida registrada que se está edit
 let logQuality = "media";  // calidad seleccionada en el modal de comida
 let photoSlotId = null;   // slot del plan al que se le está tomando foto
 let analyzingSlot = null; // slot que se está analizando ahora mismo (para el spinner)
+let lastUncheckedSlot = null; // {id, ts} — slot recién desmarcado, preferido en nearestPlanSlot
+let photoConfirmData = null;  // {id, name, cal, prot, quality} — pendiente de confirmar en modal
+let photoConfirmQuality = "media";
 
 // Genera (o regenera) el plan de comidas del día, rotando las opciones por fecha.
 // Coach-D: reparte las horas de comida según la ventana real del usuario.
@@ -1681,6 +1706,7 @@ function togglePlanMeal(id){
     const m=todayLog.meals[idx];
     todayLog.totalCalories-=m.calories;todayLog.totalProtein-=m.protein;
     todayLog.meals.splice(idx,1);
+    lastUncheckedSlot={id,ts:Date.now()}; // Fix: recordar slot desmarcado para redirigir el chat
   } else {
     // Marca como comido usando el valor RECALCULADO en vivo (Coach-A)
     if(todayLog.skippedMeals){const si=todayLog.skippedMeals.indexOf(id);if(si>=0)todayLog.skippedMeals.splice(si,1);} // comer cancela "saltada"
@@ -1783,6 +1809,11 @@ function nearestPlanSlot(){
   const now=new Date(), nowMin=now.getHours()*60+now.getMinutes();
   const cands=meals.filter(s=>s.cal>0 && !isMealDone(s.id) && !isMealSkipped(s.id)); // descarta café/ayuno, comidas hechas y saltadas
   if(!cands.length) return null;
+  // Si el usuario acaba de desmarcar un slot (< 15 min), prefiérelo sobre la hora actual.
+  if(lastUncheckedSlot && (Date.now()-lastUncheckedSlot.ts)<900000){
+    const preferred=cands.find(s=>s.id===lastUncheckedSlot.id);
+    if(preferred) return preferred;
+  }
   // Distancia en reloj de 24h (circular): a la 1am la franja más cercana es la cena/ligera de la
   // noche (22:30), NO el rompe-ayuno de las 14:30. Evita que una comida tardía tache el desayuno.
   const circDist=(a,b)=>{const d=Math.abs(a-b)%1440;return Math.min(d,1440-d);};
@@ -1795,6 +1826,7 @@ function nearestPlanSlot(){
 function logFoodEntry(desc,cal,prot,quality){
   const slot=nearestPlanSlot();
   if(slot){
+    lastUncheckedSlot=null; // consumido
     setPlanMeal(slot.id, desc, cal, prot, quality); // reemplaza el plato, marca ✅ y recalcula las futuras
     return `✅ Registrado en *${slot.name.replace(/^[^\s]+\s/,'')}* (calidad ${quality}). Ajusté las comidas que te quedan.`;
   }
@@ -1900,12 +1932,42 @@ async function onPlanPhoto(e){
       const r=await analyzeFoodPhoto(b64);
       analyzingSlot=null;
       if(!r){alert("No pude leer la comida de la foto. Intenta con otra más clara.");renderPlan();return;}
-      setPlanMeal(id, r.name, r.cal, r.prot, r.quality);
+      showPhotoConfirm(id, r); // Fix: mostrar modal editable antes de guardar
     }catch(err){
       analyzingSlot=null;renderPlan();
       alert("Error analizando la foto: "+err.message);
     }
   });
+}
+
+function showPhotoConfirm(id, r){
+  photoConfirmData={id, name:r.name, cal:r.cal, prot:r.prot};
+  document.getElementById("pc-name").value=r.name;
+  document.getElementById("pc-cal").value=r.cal;
+  document.getElementById("pc-prot").value=r.prot;
+  setPhotoConfirmQuality(r.quality||"media");
+  document.getElementById("modal-photo-confirm").classList.add("open");
+}
+
+function setPhotoConfirmQuality(q){
+  photoConfirmQuality=q;
+  document.querySelectorAll("#pc-quality-row .qbtn").forEach(b=>b.classList.toggle("sel",b.dataset.q===q));
+}
+
+function confirmPhotoMeal(){
+  if(!photoConfirmData)return;
+  const name=(document.getElementById("pc-name").value||"").trim()||photoConfirmData.name;
+  const cal=parseInt(document.getElementById("pc-cal").value)||photoConfirmData.cal;
+  const prot=parseInt(document.getElementById("pc-prot").value)||photoConfirmData.prot;
+  const id=photoConfirmData.id;
+  closePhotoConfirm();
+  setPlanMeal(id, name, cal, prot, photoConfirmQuality);
+}
+
+function closePhotoConfirm(){
+  photoConfirmData=null;
+  document.getElementById("modal-photo-confirm").classList.remove("open");
+  renderPlan();
 }
 
 // ══════════════════════════════════════════════════════

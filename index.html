@@ -1451,14 +1451,20 @@ function toggleSupp(id){
 }
 
 // Chip de estado de hora para medicamentos y suplementos
+function fmt12(hhmm){
+  const p=String(hhmm||"").split(":"), h=parseInt(p[0])||0, m=parseInt(p[1])||0;
+  const ampm=h<12?"am":"pm", h12=h%12||12;
+  return `${h12}:${String(m).padStart(2,"0")}${ampm}`;
+}
 function timeStatusChip(timeStr, checked){
   if(!timeStr||checked) return '';
   const now=new Date(), nowMin=now.getHours()*60+now.getMinutes();
   const medMin=toMin(timeStr), diff=medMin-nowMin;
-  if(diff>120) return `<span style="font-size:10px;color:#888;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:1px 6px">⏰ ${timeStr}</span>`;
-  if(diff>0)   return `<span style="font-size:10px;color:#ffa94d;border:1px solid rgba(255,180,60,.3);border-radius:8px;padding:1px 6px">🟡 en ${diff}m</span>`;
-  if(diff>-90) return `<span style="font-size:10px;color:#ff8080;border:1px solid rgba(255,80,80,.3);border-radius:8px;padding:1px 6px">🔴 ahora · ${timeStr}</span>`;
-  return `<span style="font-size:10px;color:#666;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:1px 6px">⏰ ${timeStr}</span>`;
+  const label=fmt12(timeStr);
+  if(diff>120) return `<span style="font-size:10px;color:#888;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:1px 6px">⏰ ${label}</span>`;
+  if(diff>0)   return `<span style="font-size:10px;color:#ffa94d;border:1px solid rgba(255,180,60,.3);border-radius:8px;padding:1px 6px">🟡 en ${diff}m · ${label}</span>`;
+  if(diff>-90) return `<span style="font-size:10px;color:#ff8080;border:1px solid rgba(255,80,80,.3);border-radius:8px;padding:1px 6px">🔴 ahora · ${label}</span>`;
+  return `<span style="font-size:10px;color:#666;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:1px 6px">⏰ ${label}</span>`;
 }
 
 // Fila marcable reutilizable (suplemento adaptativo o medicamento propio)

@@ -203,8 +203,9 @@ details[open] summary .chev{transform:rotate(90deg)}
   <div id="weight-list"></div>
   <button onclick="openWeight()" style="width:100%;padding:13px;margin-bottom:20px;background:rgba(255,180,60,.08);border:1px solid rgba(255,180,60,.2);border-radius:14px;color:#ffa94d;font-size:14px;font-weight:600">⚖️ Registrar nuevo peso</button>
 
-  <div class="section-label">Últimos 7 días</div>
+  <div class="section-label">Últimos 7 días · estadísticas</div>
   <div id="weekly-stats"></div>
+  <div class="section-label" style="margin-top:16px">Todo el historial</div>
   <div id="days-list"></div>
 </div>
 
@@ -2458,24 +2459,33 @@ function updateProgressUI(){
     wList.innerHTML=html;
   }
 
-  // Weekly stats
-  const past=days7.slice(1).map(d=>lsGet("log-"+d)).filter(l=>l&&l.meals&&l.meals.length>0);
+  // Últimos 7 días → estadísticas
+  const past7=days7.slice(1).map(d=>lsGet("log-"+d)).filter(l=>l&&l.meals&&l.meals.length>0);
   const statsEl=document.getElementById("weekly-stats");
   const daysEl=document.getElementById("days-list");
-  if(past.length===0){
-    statsEl.innerHTML=`<div style="padding:18px;text-align:center;border-radius:14px;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.08);color:#555;font-size:13px">Aún no hay historial. Sigue usando la app.</div>`;
-    daysEl.innerHTML="";
+  if(past7.length===0){
+    statsEl.innerHTML=`<div style="padding:18px;text-align:center;border-radius:14px;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.08);color:#555;font-size:13px">Aún no hay historial esta semana.</div>`;
   } else {
-    const avgCal=Math.round(past.reduce((s,l)=>s+l.totalCalories,0)/past.length);
-    const avgProt=Math.round(past.reduce((s,l)=>s+l.totalProtein,0)/past.length);
+    const avgCal=Math.round(past7.reduce((s,l)=>s+l.totalCalories,0)/past7.length);
+    const avgProt=Math.round(past7.reduce((s,l)=>s+l.totalProtein,0)/past7.length);
     const stats=[
       {label:"Cal. promedio",value:`${avgCal} kcal`,good:avgCal<=PROFILE.targetCalories+100},
       {label:"Proteína prom.",value:`${avgProt}g`,good:avgProt>=PROFILE.targetProtein*.8},
-      {label:"Días gym",value:`${past.filter(l=>l.gymDone).length} / ${past.length}`,good:past.filter(l=>l.gymDone).length>=Math.ceil(past.length*.4)},
-      {label:"Días alcohol",value:`${past.filter(l=>l.drankAlcohol).length} / ${past.length}`,good:past.filter(l=>l.drankAlcohol).length<=2},
+      {label:"Días gym",value:`${past7.filter(l=>l.gymDone).length} / ${past7.length}`,good:past7.filter(l=>l.gymDone).length>=Math.ceil(past7.length*.4)},
+      {label:"Días alcohol",value:`${past7.filter(l=>l.drankAlcohol).length} / ${past7.length}`,good:past7.filter(l=>l.drankAlcohol).length<=2},
     ];
     statsEl.innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">${stats.map(s=>`<div class="card" style="padding:14px 16px"><div style="font-size:11px;color:#888;margin-bottom:6px">${s.label}</div><div style="font-size:20px;font-weight:800;color:${s.good?"#63ffb4":"#ffa94d"}">${s.value}</div></div>`).join("")}</div>`;
-    daysEl.innerHTML=past.map(l=>`
+  }
+  // Todo el historial: escanea todas las claves log-YYYY-MM-DD en localStorage
+  const allHistory=Object.keys(localStorage)
+    .filter(k=>/^log-\d{4}-\d{2}-\d{2}$/.test(k))
+    .sort().reverse()
+    .map(k=>lsGet(k))
+    .filter(l=>l&&l.meals&&l.meals.length>0);
+  if(allHistory.length===0){
+    daysEl.innerHTML=`<div style="padding:18px;text-align:center;border-radius:14px;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.08);color:#555;font-size:13px">Aún no hay historial. Sigue usando la app.</div>`;
+  } else {
+    daysEl.innerHTML=allHistory.map(l=>`
       <div class="card" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding:10px 16px">
         <div>
           <div style="font-size:12px;font-weight:600">${new Date(l.date+"T12:00:00").toLocaleDateString("es-ES",{weekday:"short",day:"numeric",month:"short"})}</div>

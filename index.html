@@ -1419,20 +1419,27 @@ function getHealthPlan(){
   const wt=getTodayWorkoutType();
   const isGymDay=(wt!=='WALK'&&wt!=='REST');
   const mealsLeft=(dailyPlan.meals||[]).filter(s=>!isMealDone(s.id)&&!isMealSkipped(s.id)).length;
+  // Tiempos reales del plan de hoy (ajustados al ancla de levantarse)
+  const mealAt=id=>(dailyPlan.meals||[]).find(s=>s.id===id)?.time||null;
+  const m1=mealAt("m1"), m2=mealAt("m2"), m3=mealAt("m3"), m4=mealAt("m4");
+  // Hora de dormir estimada: última comida + ~2h (o fallback 03:00)
+  const bedtime=m4?toHHMM(toMin(m4)+120):"03:00";
+  // Hora pre-gym: slot m2 − 40 min
+  const preGym=m2?toHHMM(toMin(m2)-40):null;
   // — Base diaria (siempre) —
-  items.push({id:"creatina",emoji:"💪",name:"Creatina monohidrato",dose:"5 g",why:"Base diaria para fuerza y músculo. Segura incluso en déficit."});
-  items.push({id:"vitd",emoji:"☀️",name:"Vitamina D3",dose:"1000–2000 UI",why:"Tu horario nocturno = poco sol. Apoya ánimo, energía y hueso."});
+  items.push({id:"creatina",emoji:"💪",name:"Creatina monohidrato",dose:"5 g",why:"Base diaria para fuerza y músculo. Segura incluso en déficit.",when:m1});
+  items.push({id:"vitd",emoji:"☀️",name:"Vitamina D3",dose:"1000–2000 UI",why:"Tu horario nocturno = poco sol. Apoya ánimo, energía y hueso.",when:m1});
   // — Condicionales según cómo viene tu día —
   if(isGymDay&&!todayLog.gymDone)
-    items.push({id:"cafe",emoji:"☕",name:"Café / cafeína pre-gym",dose:"30–45 min antes",why:"Hoy toca gym: energía y mejor rendimiento en la sesión."});
+    items.push({id:"cafe",emoji:"☕",name:"Café / cafeína pre-gym",dose:"30–45 min antes",why:"Hoy toca gym: energía y mejor rendimiento en la sesión.",when:preGym});
   if(protGap>=25&&mealsLeft<=1)
-    items.push({id:"whey",emoji:"🥛",name:"Proteína en polvo (whey)",dose:"1 medida (~25 g)",why:`Te faltan ${protGap}g de proteína y queda poca comida. Una medida ayuda a llegar a tu meta.`});
+    items.push({id:"whey",emoji:"🥛",name:"Proteína en polvo (whey)",dose:"1 medida (~25 g)",why:`Te faltan ${protGap}g de proteína y queda poca comida. Una medida ayuda a llegar a tu meta.`,when:m3||m2});
   if(inDeficit)
-    items.push({id:"multi",emoji:"🟢",name:"Multivitamínico",dose:"1 al día",why:"Estás en déficit calórico: respaldo de micronutrientes."});
+    items.push({id:"multi",emoji:"🟢",name:"Multivitamínico",dose:"1 al día",why:"Estás en déficit calórico: respaldo de micronutrientes.",when:m1});
   if(todayLog.drankAlcohol)
-    items.push({id:"hidrata",emoji:"💧",name:"Hidratación + electrolitos",dose:"2–3 vasos extra",why:"Tomaste alcohol: hidrátate y repón electrolitos para evitar el bajón de mañana."});
-  items.push({id:"omega3",emoji:"🐟",name:"Omega-3 (EPA/DHA)",dose:"1–2 g",why:"Si hoy no comiste pescado azul. Antiinflamatorio y salud cardiovascular."});
-  items.push({id:"magnesio",emoji:"🌙",name:"Magnesio (glicinato)",dose:"~300 mg antes de dormir",why:"Mejora el sueño y la recuperación — clave con tu horario 3am-11am."});
+    items.push({id:"hidrata",emoji:"💧",name:"Hidratación + electrolitos",dose:"2–3 vasos extra",why:"Tomaste alcohol: hidrátate y repón electrolitos para evitar el bajón de mañana.",when:null});
+  items.push({id:"omega3",emoji:"🐟",name:"Omega-3 (EPA/DHA)",dose:"1–2 g",why:"Si hoy no comiste pescado azul. Antiinflamatorio y salud cardiovascular.",when:m3});
+  items.push({id:"magnesio",emoji:"🌙",name:"Magnesio (glicinato)",dose:"~300 mg antes de dormir",why:"Mejora el sueño y la recuperación — clave con tu horario 3am-11am.",when:bedtime});
   return items;
 }
 
@@ -1443,14 +1450,26 @@ function toggleSupp(id){
   renderHealth();
 }
 
+// Chip de estado de hora para medicamentos y suplementos
+function timeStatusChip(timeStr, checked){
+  if(!timeStr||checked) return '';
+  const now=new Date(), nowMin=now.getHours()*60+now.getMinutes();
+  const medMin=toMin(timeStr), diff=medMin-nowMin;
+  if(diff>120) return `<span style="font-size:10px;color:#888;border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:1px 6px">⏰ ${timeStr}</span>`;
+  if(diff>0)   return `<span style="font-size:10px;color:#ffa94d;border:1px solid rgba(255,180,60,.3);border-radius:8px;padding:1px 6px">🟡 en ${diff}m</span>`;
+  if(diff>-90) return `<span style="font-size:10px;color:#ff8080;border:1px solid rgba(255,80,80,.3);border-radius:8px;padding:1px 6px">🔴 ahora · ${timeStr}</span>`;
+  return `<span style="font-size:10px;color:#666;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:1px 6px">⏰ ${timeStr}</span>`;
+}
+
 // Fila marcable reutilizable (suplemento adaptativo o medicamento propio)
-function suppRow(checkId,emoji,title,dose,why,delHtml){
+function suppRow(checkId,emoji,title,dose,why,delHtml,when){
   const on=!!(todayLog.supps||{})[checkId];
+  const timeChip=when?timeStatusChip(when,on):'';
   return `<div class="card" style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;margin-bottom:8px;${on?'opacity:.6':''}">
     <button onclick="toggleSupp('${checkId}')" style="width:24px;height:24px;border-radius:7px;flex-shrink:0;margin-top:1px;border:2px solid ${on?'#63ffb4':'rgba(255,255,255,.2)'};background:${on?'#63ffb4':'transparent'};color:#0a0a0f;font-size:14px;font-weight:800;display:flex;align-items:center;justify-content:center">${on?'✓':''}</button>
     <div style="flex:1;min-width:0">
       <div style="font-size:13.5px;font-weight:600;${on?'text-decoration:line-through':''}">${emoji} ${title}${dose?` <span style="color:#ffa94d;font-weight:600">· ${dose}</span>`:''}</div>
-      <div style="font-size:11.5px;color:#888;margin-top:2px">${why}</div>
+      <div style="font-size:11.5px;color:#888;margin-top:2px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">${why}${timeChip?' '+timeChip:''}</div>
     </div>
     ${delHtml||''}
   </div>`;
@@ -1463,12 +1482,16 @@ function renderHealth(){
   const done=plan.filter(s=>(todayLog.supps||{})[s.id]).length;
   let html=`<div style="font-size:11.5px;color:#888;margin-bottom:8px">Recomendado para hoy · <b style="color:#63ffb4">${done}/${plan.length}</b></div>
     <div style="font-size:11.5px;color:#888;margin-bottom:10px;line-height:1.4">Tu asesor lo arma según tu día y tus metas (grasa · músculo · energía · sueño). Seguro y opcional — tú decides y marcas.</div>`;
-  html+=plan.map(s=>suppRow(s.id,s.emoji,s.name,s.dose,s.why)).join("");
+  html+=plan.map(s=>suppRow(s.id,s.emoji,s.name,s.dose,s.why,null,s.when)).join("");
   if(MEDS.length>0){
     html+=`<div class="section-label" style="margin-top:6px">🩺 Mis medicamentos</div>`;
-    html+=MEDS.map(m=>suppRow("med-"+m.id,"💊",escHtml(m.name),escHtml(m.dose||""),
-      (m.time?`⏰ ${m.time} · `:"")+escHtml(m.note||"Recordatorio tuyo"),
-      `<button onclick="deleteMed('${m.id}')" style="font-size:13px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.25);border-radius:8px;width:30px;height:28px;flex-shrink:0">🗑️</button>`)).join("");
+    html+=MEDS.map(m=>{
+      const checked=!!(todayLog.supps||{})["med-"+m.id];
+      const note=escHtml(m.note||"Recordatorio tuyo");
+      return suppRow("med-"+m.id,"💊",escHtml(m.name),escHtml(m.dose||""),note,
+        `<button onclick="deleteMed('${m.id}')" style="font-size:13px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.25);border-radius:8px;width:30px;height:28px;flex-shrink:0">🗑️</button>`,
+        m.time||null);
+    }).join("");
   }
   html+=`<button onclick="openMed()" style="width:100%;padding:12px;margin-top:4px;background:rgba(99,255,180,.08);border:1px solid rgba(99,255,180,.2);border-radius:14px;color:#63ffb4;font-size:14px;font-weight:600">+ Añadir mi medicamento / suplemento</button>`;
   html+=`<div style="font-size:10.5px;color:#666;text-align:center;margin-top:10px;line-height:1.4">Recomendaciones generales, seguras y opcionales. No reemplazan a la comida ni a un profesional. La app no receta medicamentos: añade solo los que tu médico ya te indicó. Ante dudas o condiciones médicas, consulta a tu médico.</div>`;

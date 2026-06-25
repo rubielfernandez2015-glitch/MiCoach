@@ -363,7 +363,10 @@ details[open] summary .chev{transform:rotate(90deg)}
     <div style="font-size:17px;font-weight:700;margin-bottom:4px">📷 Confirmar comida</div>
     <div style="font-size:13px;color:#888;margin-bottom:12px">Gemini identificó esto. Corrige si algo está mal.</div>
     <div class="field-label">Nombre del plato</div>
-    <input class="field-input" id="pc-name" placeholder="Ej: Pescado a la plancha con arroz">
+    <div style="display:flex;gap:8px;align-items:center">
+      <input class="field-input" id="pc-name" placeholder="Ej: Pescado a la plancha con arroz" style="flex:1;margin-bottom:0">
+      <button onclick="recalcPhotoName()" id="pc-recalc-btn" style="flex-shrink:0;padding:8px 12px;border-radius:12px;background:rgba(99,255,180,.1);border:1px solid rgba(99,255,180,.25);color:#63ffb4;font-size:12px;font-weight:600;white-space:nowrap">🔄 Recalcular</button>
+    </div>
     <div style="display:flex;gap:10px">
       <div style="flex:1"><div class="field-label">Calorías</div><input class="field-input" id="pc-cal" type="number"></div>
       <div style="flex:1"><div class="field-label">Proteína (g)</div><input class="field-input" id="pc-prot" type="number"></div>
@@ -1968,6 +1971,28 @@ function closePhotoConfirm(){
   photoConfirmData=null;
   document.getElementById("modal-photo-confirm").classList.remove("open");
   renderPlan();
+}
+
+async function recalcPhotoName(){
+  const name=(document.getElementById("pc-name").value||"").trim();
+  if(!name) return;
+  const btn=document.getElementById("pc-recalc-btn");
+  btn.textContent="⏳…";btn.disabled=true;
+  try{
+    const prompt=`Estima los valores nutricionales de una porción típica de "${name}". Responde SOLO un objeto JSON sin texto extra: {"calorias":ENTERO,"proteina":GRAMOS_ENTEROS,"calidad":"alta|media|baja"}`;
+    const data=await geminiCall({contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:200,temperature:0.2,thinkingConfig:{thinkingBudget:0}}});
+    let txt=(data.candidates&&data.candidates[0]&&data.candidates[0].content&&data.candidates[0].content.parts?data.candidates[0].content.parts.map(p=>p.text||"").join(""):"");
+    txt=txt.replace(/```json/gi,"").replace(/```/g,"").trim();
+    const jm=txt.match(/\{[\s\S]*\}/);
+    if(jm){
+      const o=JSON.parse(jm[0]);
+      const cal=parseInt(o.calorias??o.calories??o.cal), prot=parseInt(o.proteina??o.protein??o.prot);
+      if(!isNaN(cal)) document.getElementById("pc-cal").value=cal;
+      if(!isNaN(prot)) document.getElementById("pc-prot").value=prot;
+      if(o.calidad||o.quality) setPhotoConfirmQuality(normQuality(o.calidad||o.quality));
+    }
+  }catch(e){}
+  btn.textContent="🔄 Recalcular";btn.disabled=false;
 }
 
 // ══════════════════════════════════════════════════════

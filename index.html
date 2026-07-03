@@ -283,6 +283,13 @@ details[open] summary .chev{transform:rotate(90deg)}
     <div class="field-label">Peso actual (kg)</div>
     <input class="field-input" id="set-weight" type="number" step="0.1">
     <button onclick="autoCalcTargets()" style="width:100%;padding:11px;margin-top:10px;border-radius:12px;background:rgba(255,180,60,.1);border:1px solid rgba(255,180,60,.25);color:#ffa94d;font-size:13px;font-weight:600">🧮 Calcular metas automáticamente</button>
+    <div class="field-label">Nivel de déficit</div>
+    <select class="field-input" id="set-deficit-level" onchange="applyDeficitLevel()">
+      <option value="suave">Suave (~12% bajo TDEE) — sostenible</option>
+      <option value="moderado">Moderado (~19% bajo TDEE) — el de siempre</option>
+      <option value="fuerte">Fuerte (~28% bajo TDEE) — agresivo, temporadas cortas</option>
+    </select>
+    <div style="font-size:10.5px;color:#666;margin:-6px 0 10px;line-height:1.4">Cambia esto y "Meta calorías" se recalcula sola desde tu TDEE. Úsalo para hacer una semana de déficit fuerte y luego volver a moderado — el plan de comidas del día se adapta solo.</div>
     <div style="display:flex;gap:10px">
       <div style="flex:1"><div class="field-label">TDEE (gasto/día)</div><input class="field-input" id="set-tdee" type="number"></div>
       <div style="flex:1"><div class="field-label">Meta calorías</div><input class="field-input" id="set-cal" type="number"></div>
@@ -411,9 +418,16 @@ const PROFILE = Object.assign({
   name:"Rubiel", age:34, weight:83.4, height:180,
   startWeight:83.4, startDate:"2026-06-08",
   targetCalories:1750, targetProtein:167, targetCarbs:140, targetFat:65, tdee:2150,
-  firstMeal:"14:30", lastMeal:"21:00"
+  firstMeal:"14:30", lastMeal:"21:00", deficitLevel:"moderado"
 }, lsGet("profile")||{});
 function saveProfile(){ lsSet("profile", PROFILE); }
+
+// Niveles de déficit seleccionables en Ajustes: % de recorte sobre el TDEE calculado.
+const DEFICIT_LEVELS = {
+  suave:    {label:"Suave",    pct:0.12, hint:"sostenible, más margen para comer"},
+  moderado: {label:"Moderado", pct:0.19, hint:"el de siempre, buen balance"},
+  fuerte:   {label:"Fuerte",   pct:0.28, hint:"agresivo, solo por temporadas cortas"}
+};
 
 const WORKOUTS = {
   A: {
@@ -535,6 +549,8 @@ const MEAL_SLOTS = [
     "Yogur griego + maní + cacao sin azúcar"
   ]}
 ];
+// Suma de las kcal base de MEAL_SLOTS: referencia para escalar cada comida al nivel de déficit activo.
+const MEAL_SLOTS_BASE_CAL = MEAL_SLOTS.reduce((a,s)=>a+s.cal,0);
 
 // Coach-E: el plan de salud se calcula adaptativamente cada día en getHealthPlan().
 
@@ -688,7 +704,10 @@ function getWeekStatus(){
   });
   const remaining=keys.filter(dk=>dk>=tk).length; // días que quedan, incluyendo hoy
   let adj=remaining>0?Math.round(pastSurplus/remaining):0;
-  adj=Math.max(-400,Math.min(500,adj)); // tope: no más de -400 extra ni +500 de recorte por día
+  // Asimétrico a propósito: si te excediste, sí se recorta para recuperar (tope 500kcal/día).
+  // Si comiste de menos, ese margen NO se reparte hacia adelante — no forzamos a comer de más
+  // solo para "gastarlo"; se queda como déficit extra a tu favor.
+  adj=Math.max(0,Math.min(500,adj));
   return {pastSurplus:Math.round(pastSurplus), closedDays, remaining, adjustment:adj};
 }
 
@@ -1123,9 +1142,9 @@ function buildPrompt(){
 
   return `Eres el entrenador personal de Rubiel, 34 años, 1.80m, empezó en 83.4kg. Meta: perder grasa abdominal y ganar definición muscular. Horario nocturno: duerme ~3am-11am; al despertar (11am) solo café negro sin azúcar manteniendo el ayuno; primera comida (rompe-ayuno fuerte) 2:30pm; pre-entreno ~5pm; gym ~6pm; cena fuerte 8-9pm; comida ligera opcional con caseína 10-11pm si tiene hambre. Ventana de comida 2:30pm-~11pm. Tiene gimnasio en el edificio con equipos completos. Gym 3x/semana (Lun/Mié/Vie) con un programa ROTATIVO de 5 rutinas (A:Pecho+Tríceps, B:Espalda+Bíceps, C:Piernas+Hombros, D:Full-body Funcional, E:Core+Cardio) que avanza cada sesión para dar variedad. Mar/Jue/Sáb = caminata (~8,000 pasos, recuperación activa). Domingo = descanso total. IMPORTANTE: el día cuenta hasta las 5am (no medianoche). Una comida registrada de madrugada (12am-5am) pertenece al día anterior, no abre uno nuevo — la app ya la suma al día correcto. Si el usuario dice que algo que comió tarde es "de ayer", confírmale que sí cuenta para ese día y que su presupuesto de hoy se ajusta solo con el balance semanal.
 
-METAS: ${PROFILE.targetCalories}kcal base · ${PROFILE.targetProtein}g proteína · Déficit ~400kcal/día
+METAS: ${PROFILE.targetCalories}kcal base · ${PROFILE.targetProtein}g proteína · Déficit ${PROFILE.tdee-PROFILE.targetCalories}kcal/día (nivel: ${DEFICIT_LEVELS[PROFILE.deficitLevel]?.label||"Moderado"})
 PRESUPUESTO HOY: ${budget}kcal (ajustado por ejercicio${todayLog.gymDone?` +${workout.calBurn||300}kcal gym`:""}${todayLog.cardioDone?" +150kcal cardio":""}${todayLog.alcoholCal>0?` -${todayLog.alcoholCal}kcal alcohol`:""})
-BALANCE SEMANAL: ${wk.closedDays===0?"Sin días cerrados aún esta semana.":`${wk.pastSurplus>0?"+":""}${wk.pastSurplus}kcal acumulados en ${wk.closedDays} día(s). Ajuste hoy: ${wk.adjustment>0?"-"+wk.adjustment+"kcal (recuperando exceso)":wk.adjustment<0?"+"+(-wk.adjustment)+"kcal (margen a favor)":"sin ajuste"}. Quedan ${wk.remaining} días.`}
+BALANCE SEMANAL: ${wk.closedDays===0?"Sin días cerrados aún esta semana.":`${wk.pastSurplus>0?"+":""}${wk.pastSurplus}kcal acumulados en ${wk.closedDays} día(s). ${wk.adjustment>0?`Ajuste hoy: -${wk.adjustment}kcal (recuperando exceso).`:wk.pastSurplus<-100?`Margen de ${-wk.pastSurplus}kcal a favor (se queda como déficit extra, NO se reparte para comer de más).`:"Sin ajuste."} Quedan ${wk.remaining} días.`}
 
 PROGRESO PESO: ${weights.length===0?"Sin pesajes aún.":`${weights.map(w=>w.date+":"+w.weight+"kg").join(", ")} | Cambio: ${wDiff>0?"+":""}${wDiff}kg`}
 
@@ -1362,9 +1381,9 @@ function updateTodayUI(){
   if(wk.adjustment>0){
     da.style.display="block";
     da.innerHTML=`<div style="padding:10px 14px;border-radius:12px;background:rgba(255,180,60,.08);border:1px solid rgba(255,180,60,.2);font-size:12px;color:#ffa94d;margin-bottom:10px">⚠️ Vienes con +${wk.pastSurplus} kcal de exceso esta semana. Para recuperarlo, tu presupuesto baja −${wk.adjustment} kcal/día los próximos ${wk.remaining} días (hoy incluido). No pasa nada, se reparte parejo.</div>`;
-  } else if(wk.adjustment<0){
+  } else if(wk.pastSurplus<-100){
     da.style.display="block";
-    da.innerHTML=`<div style="padding:10px 14px;border-radius:12px;background:rgba(99,255,180,.08);border:1px solid rgba(99,255,180,.2);font-size:12px;color:#63ffb4;margin-bottom:10px">✅ Llevas ${-wk.pastSurplus} kcal de margen esta semana. Hoy tienes +${-wk.adjustment} kcal extra disponibles sin salirte de tu meta semanal.</div>`;
+    da.innerHTML=`<div style="padding:10px 14px;border-radius:12px;background:rgba(99,255,180,.08);border:1px solid rgba(99,255,180,.2);font-size:12px;color:#63ffb4;margin-bottom:10px">✅ Llevas ${-wk.pastSurplus} kcal de margen esta semana. Se queda así como déficit extra a tu favor — no se reparte para comer de más.</div>`;
   } else da.style.display="none";
 
   // Meals
@@ -1572,11 +1591,14 @@ function getAdjustedPlan(){
   remCal=Math.min(remCal,rawRemCal);   // nunca por encima del presupuesto real (no fuerza comer de más)
   const sumBaseCal=remaining.reduce((a,s)=>a+s.cal,0)||1;
   const sumBaseProt=remaining.reduce((a,s)=>a+s.prot,0)||1;
+  // Referencia de "comida normal" escalada al nivel de déficit activo (no al plan original de 1750kcal fijo).
+  const calScale=PROFILE.targetCalories/MEAL_SLOTS_BASE_CAL;
   const adj={};
   remaining.forEach(s=>{
     const cal=Math.max(0,Math.round(remCal*(s.cal/sumBaseCal)/5)*5); // redondeo a 5
     const prot=Math.max(0,Math.round(remProt*(s.prot/sumBaseProt)));
-    adj[s.id]={cal, prot, changed:Math.abs(cal-s.cal)>=40};
+    const base=Math.round(s.cal*calScale/5)*5;
+    adj[s.id]={cal, prot, base, changed:Math.abs(cal-base)>=40};
   });
   // Cuadra el redondeo: el sobrante (lo que falta para el restante exacto) se suma a la 1ª comida
   // pendiente, así la suma de las tarjetas da EXACTO y no aparece "de menos".
@@ -1704,7 +1726,7 @@ function renderPlan(){
     }
     const sub=logged
       ? `✅ ${escHtml(logged.description.replace(/^.*—\s*/,''))}`
-      : `${s.suggest}${(!isFast&&a&&a.changed)?` <span style="color:#ffa94d">· ajustado (base ${s.cal})</span>`:""}`;
+      : `${s.suggest}${(!isFast&&a&&a.changed)?` <span style="color:#ffa94d">· ajustado (base ${a.base})</span>`:""}`;
     const title=`${s.time} · ${s.name.replace(/^[^\s]+\s/,'')}${s.optional?` <span style="color:#888;font-size:11px">· opcional</span>`:''}`;
     const right=isFast
       ? `<div style="font-size:11px;color:#888">sin calorías</div>`
@@ -1771,10 +1793,11 @@ function adjustPlanMeal(id){
   const slot=dailyPlan.meals.find(s=>s.id===id);if(!slot)return;
   editingPlanId=id;
   const logged=todayLog.meals.find(m=>m.planId===id);
+  const a=getAdjustedPlan().adj[id]; // valores ya recalculados (nivel de déficit + reparto del día), no los fijos del plan base
   document.getElementById("log-title").textContent="Ajustar: "+slot.name.replace(/^[^\s]+\s/,'');
   document.getElementById("log-desc").value=logged?logged.description.replace(/^.*—\s*/,''):slot.suggest;
-  document.getElementById("log-cal").value=logged?logged.calories:slot.cal;
-  document.getElementById("log-prot").value=logged?logged.protein:slot.prot;
+  document.getElementById("log-cal").value=logged?logged.calories:(a?a.cal:slot.cal);
+  document.getElementById("log-prot").value=logged?logged.protein:(a?a.prot:slot.prot);
   document.getElementById("modal-log").classList.add("open");
 }
 
@@ -2259,21 +2282,30 @@ function openSettings(){
   document.getElementById("set-tdee").value=PROFILE.tdee||"";
   document.getElementById("set-cal").value=PROFILE.targetCalories||"";
   document.getElementById("set-prot").value=PROFILE.targetProtein||"";
+  document.getElementById("set-deficit-level").value=PROFILE.deficitLevel||"moderado";
   document.getElementById("reset-date").value=todayKey();
   document.getElementById("modal-settings").classList.add("open");
 }
 function closeSettings(){document.getElementById("modal-settings").classList.remove("open");}
 
-// Estima TDEE (Mifflin-St Jeor, hombre) y propone metas con déficit ~400 kcal.
+// Estima TDEE (Mifflin-St Jeor, hombre) y propone metas según el nivel de déficit elegido.
 function autoCalcTargets(){
   const age=parseInt(document.getElementById("set-age").value)||PROFILE.age;
   const h=parseInt(document.getElementById("set-height").value)||PROFILE.height;
   const w=parseFloat(document.getElementById("set-weight").value)||PROFILE.weight;
   const bmr=10*w+6.25*h-5*age+5;
   const tdee=Math.round(bmr*1.45); // actividad moderada
+  const level=DEFICIT_LEVELS[document.getElementById("set-deficit-level").value]||DEFICIT_LEVELS.moderado;
   document.getElementById("set-tdee").value=tdee;
-  document.getElementById("set-cal").value=Math.max(1300,tdee-400);
+  document.getElementById("set-cal").value=Math.max(1300,Math.round(tdee*(1-level.pct)));
   document.getElementById("set-prot").value=Math.round(w*2);
+}
+
+// Al cambiar el nivel de déficit, recalcula "Meta calorías" desde el TDEE ya en pantalla (sin repetir BMR).
+function applyDeficitLevel(){
+  const level=DEFICIT_LEVELS[document.getElementById("set-deficit-level").value]||DEFICIT_LEVELS.moderado;
+  const tdee=parseInt(document.getElementById("set-tdee").value)||PROFILE.tdee;
+  document.getElementById("set-cal").value=Math.max(1300,Math.round(tdee*(1-level.pct)));
 }
 
 function saveSettings(){
@@ -2284,6 +2316,7 @@ function saveSettings(){
   PROFILE.tdee=parseInt(document.getElementById("set-tdee").value)||PROFILE.tdee;
   PROFILE.targetCalories=parseInt(document.getElementById("set-cal").value)||PROFILE.targetCalories;
   PROFILE.targetProtein=parseInt(document.getElementById("set-prot").value)||PROFILE.targetProtein;
+  PROFILE.deficitLevel=document.getElementById("set-deficit-level").value||"moderado";
   saveProfile();
   regenPlanTimes(); // recalcula el plan por si cambió alguna meta
   closeSettings();updateProgressUI();
@@ -2476,7 +2509,7 @@ function updateProgressUI(){
     note=`Exceso en ${wk.closedDays} día(s) cerrado(s). Recuperación automática: −${wk.adjustment} kcal/día los próximos ${wk.remaining} días (hoy incluido).`;
   } else if(bal<-150){
     color="#63ffb4";headline=`${bal} kcal`;
-    note=`✅ Margen a favor (déficit extra) en ${wk.closedDays} día(s). Hoy tienes +${-wk.adjustment} kcal disponibles sin salirte de tu meta semanal.`;
+    note=`✅ Margen a favor (déficit extra) en ${wk.closedDays} día(s). Se queda así — no se reparte para comer de más, solo mejora tu semana.`;
   } else {
     color="#ffa94d";headline=`~0 kcal`;
     note=wk.closedDays>0?`Justo en tu meta semanal. Sigue así 💪`:`Aún sin días cerrados esta semana.`;

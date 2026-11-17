@@ -19,7 +19,11 @@ $html = [regex]::Replace($html, 'const APP_VERSION = "[^"]*"', "const APP_VERSIO
 [IO.File]::WriteAllText($f, $html, (New-Object Text.UTF8Encoding($false)))
 
 git add -A
-git commit -m $m
+# El mensaje va por archivo: PowerShell 5.1 rompe los argumentos con comillas dobles.
+$msgFile = Join-Path $env:TEMP "micoach-commit-msg.txt"
+[IO.File]::WriteAllText($msgFile, $m, (New-Object Text.UTF8Encoding($false)))
+git commit -F $msgFile
+Remove-Item $msgFile -ErrorAction SilentlyContinue
 if ($?) {
   git push
   if ($?) {

@@ -126,9 +126,6 @@ details[open] summary .chev{transform:rotate(90deg)}
   <!-- Modo: Plan Gym ↔ 🔥 Rutina Extrema -->
   <div id="mode-switch"></div>
 
-  <!-- Workout card -->
-  <div id="workout-card" class="card" style="margin-bottom:10px"></div>
-
   <!-- Calorie ring -->
   <div class="card" style="display:flex;align-items:center;gap:20px">
     <div style="position:relative;width:80px;height:80px;flex-shrink:0">
@@ -187,9 +184,14 @@ details[open] summary .chev{transform:rotate(90deg)}
   <div id="next-meal" style="margin-bottom:10px"></div>
   <input type="file" id="plan-photo-input" accept="image/*" style="display:none" onchange="onPlanPhoto(event)">
   <div id="plan-list"></div>
+
+  <!-- Ejercicio de hoy (detalle de la rutina) -->
+  <div id="workout-card" class="card" style="margin:6px 0 10px"></div>
+
   <input type="file" id="fridge-input" accept="image/*" style="display:none" onchange="onFridgePhoto(event)">
   <button onclick="openFridgePhoto()" style="width:100%;padding:12px;margin:4px 0 2px;border-radius:14px;background:rgba(255,180,60,.08);border:1px solid rgba(255,180,60,.25);color:#ffa94d;font-size:13.5px;font-weight:600">📸 ¿Qué cocino con lo que hay? <span style="font-weight:400;color:#a98">· foto de tu nevera</span></button>
-  <div id="extrema-menu"></div>
+  <!-- 🔥 Rutina Extrema: reglas (diario) -->
+  <div id="extrema-rules"></div>
 
   <!-- Meals actually logged -->
   <div class="section-label" style="margin-top:16px">Comidas registradas hoy</div>
@@ -199,6 +201,9 @@ details[open] summary .chev{transform:rotate(90deg)}
   <!-- Salud de hoy: suplementos adaptativos + medicamentos propios (Coach-E) -->
   <div class="section-label" style="margin-top:18px">💊 Salud de hoy · personalizado</div>
   <div id="supps-list" style="margin-top:8px"></div>
+
+  <!-- 🔥 Rutina Extrema: semanal, plegado (menú de la semana + lista de compras) -->
+  <div id="extrema-weekly"></div>
 </div>
 
 <!-- PROGRESO -->
@@ -431,7 +436,7 @@ details[open] summary .chev{transform:rotate(90deg)}
 // PROFILE & CONSTANTS
 // ══════════════════════════════════════════════════════
 // PROFILE editable: arranca con estos valores por defecto y se sobreescribe con lo guardado.
-const APP_VERSION = "2026-11-17.1632"; // lo actualiza update.ps1 al publicar (aviso de versión nueva)
+const APP_VERSION = "2026-11-17.1839"; // lo actualiza update.ps1 al publicar (aviso de versión nueva)
 const PROFILE = Object.assign({
   name:"Rubiel", age:34, weight:83.4, height:180,
   startWeight:83.4, startDate:"2026-06-08",
@@ -2371,10 +2376,13 @@ function renderModeSwitch(){
   </div>`;
 }
 // Estado abierto/cerrado de los desplegables (se re-pintan seguido; así no se cierran solos).
-const extremaOpen={menu:false, shop:false};
+const extremaOpen={rules:false, menu:false, shop:false};
+// Pinta la Rutina Extrema en dos sitios de "Hoy": las reglas (diario, tras las comidas) y lo semanal
+// plegado (menú + lista de compras, al final de la pantalla).
 function renderExtremaMenu(){
-  const el=document.getElementById("extrema-menu");if(!el)return;
-  if(!isExtrema()){el.innerHTML="";return;}
+  const rEl=document.getElementById("extrema-rules"), wEl=document.getElementById("extrema-weekly");
+  if(!rEl||!wEl)return;
+  if(!isExtrema()){rEl.innerHTML="";wEl.innerHTML="";return;}
   const t=extremaTargets();
   const today=logicalNow().getDay();
   const names=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
@@ -2390,25 +2398,33 @@ function renderExtremaMenu(){
   });
   const wa=t.weightAdj||{adj:0,msg:""};
   const waColor=wa.adj<0?"#ffa94d":wa.adj>0?"#9fd0ff":"#63ffb4";
-  const carbOk=!!todayLog.carbRule;
-  el.innerHTML=`
-  <div class="section-label" style="margin-top:16px">🔥 Rutina Extrema · tus reglas</div>
+  const carbOk=!!todayLog.carbRule, cheap=!!PROFILE.cheapMode;
+  // — Reglas: 3 clave a la vista, el resto en "ver más" —
+  rEl.innerHTML=`
+  <div class="section-label" style="margin-top:14px">📌 Mis reglas · Rutina Extrema</div>
   <div class="card" style="font-size:12px;color:#ccc;line-height:1.6">
-    🎯 <b>~${t.cal} kcal</b> · <b>${t.prot}g proteína</b> al día (sin gym, déficit ${DEFICIT_LEVELS[PROFILE.deficitLevel]?.label.toLowerCase()||"moderado"})<br>
+    🍚 <b>1 puño de carbohidrato por comida</b>: ¾ taza de arroz, <i>o</i> 2 rebanadas de pan, <i>o</i> 1 vianda. <b>Nunca arroz y pan juntos.</b><br>
     ⏰ Antes de las 2pm: solo agua, café negro o té sin azúcar<br>
-    🍚 <b>1 puño de carbohidrato por comida</b>: ¾ taza de arroz, <i>o</i> 2 rebanadas de pan, <i>o</i> 1 vianda mediana. <b>Nunca arroz y pan juntos.</b> Mejor mitad arroz y mitad frijoles. El pan, solo en el desayuno.<br>
-    🍽️ Plato: ½ vegetales · ¼ proteína (2 palmas) · ¼ carbohidrato · 1 pulgar de grasa<br>
-    💧 2.5-3 L de agua · sin refrescos ni jugos<br>
-    🧑‍🍳 <b>Domingo:</b> cocina para la semana (pollo, frijoles, huevos duros, vegetales picados) y no improvisas con pan<br>
-    🆘 Plan B si no hay nada: revoltillo de 4 huevos + ½ lata de atún + ensalada
+    💧 2.5-3 L de agua · sin refrescos ni jugos
+    <details ${extremaOpen.rules?"open":""} ontoggle="extremaOpen.rules=this.open">
+      <summary style="font-size:11.5px;color:#ff8c42;padding:6px 0 2px;cursor:pointer">ver más</summary>
+      🎯 <b>~${t.cal} kcal</b> · <b>${t.prot}g proteína</b> al día (sin gym, déficit ${DEFICIT_LEVELS[PROFILE.deficitLevel]?.label.toLowerCase()||"moderado"})<br>
+      🍚 Mejor mitad arroz y mitad frijoles. El pan, solo en el desayuno.<br>
+      🍽️ Plato: ½ vegetales · ¼ proteína (2 palmas) · ¼ carbohidrato · 1 pulgar de grasa<br>
+      🧑‍🍳 <b>Domingo:</b> cocina para la semana (pollo, frijoles, huevos duros, vegetales picados) y no improvisas con pan<br>
+      🆘 Plan B si no hay nada: revoltillo de 4 huevos + ½ lata de atún + ensalada
+    </details>
     <div style="margin-top:10px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:${waColor};font-size:11.5px">⚖️ <b>Ajuste por tu peso:</b> ${wa.msg}</div>
-    <div style="display:flex;gap:8px;margin-top:10px">
-      <button onclick="toggleCarbRule()" style="flex:1;padding:9px 8px;border-radius:11px;font-size:11.5px;font-weight:600;${carbOk?"background:rgba(99,255,180,.12);border:1px solid rgba(99,255,180,.35);color:#63ffb4":"background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#aaa"}">${carbOk?"✅ Hoy cumplí la regla del arroz y pan":"⬜ ¿Cumpliste hoy la regla del arroz y pan?"}</button>
-      <button onclick="toggleCheapMode()" style="flex-shrink:0;padding:9px 10px;border-radius:11px;font-size:11.5px;font-weight:600;${PROFILE.cheapMode?"background:rgba(255,200,60,.12);border:1px solid rgba(255,200,60,.4);color:#ffd166":"background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#aaa"}">💸 Económico ${PROFILE.cheapMode?"ON":"OFF"}</button>
-    </div>
-    ${PROFILE.cheapMode?`<div style="font-size:10.5px;color:#998;margin-top:6px">Modo económico: cambié res, salmón y cerdo por molleja, atún con huevo y muslo de pollo. Misma proteína, menos gasto.</div>`:""}
-  </div>
-  <details ${extremaOpen.menu?"open":""} ontoggle="extremaOpen.menu=this.open" style="margin-top:4px">
+    <button onclick="toggleCarbRule()" style="width:100%;margin-top:8px;padding:10px;border-radius:11px;font-size:12px;font-weight:600;${carbOk?"background:rgba(99,255,180,.12);border:1px solid rgba(99,255,180,.35);color:#63ffb4":"background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#aaa"}">${carbOk?"✅ Hoy cumplí la regla del arroz y pan":"🍚 ¿Hoy cumpliste la regla del arroz y pan? <span style=\"font-weight:400;color:#777\">· márcalo en la noche</span>"}</button>
+    <button onclick="toggleCheapMode()" style="width:100%;margin-top:6px;padding:10px;border-radius:11px;font-size:12px;font-weight:600;${cheap?"background:rgba(255,200,60,.12);border:1px solid rgba(255,200,60,.4);color:#ffd166":"background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#aaa"}">💸 Menú económico: ${cheap?"activado":"desactivado"}</button>
+    <div style="font-size:10.5px;color:#888;margin-top:6px;line-height:1.4">${cheap
+      ?"Martes molleja, miércoles atún con huevo y sábado muslo de pollo en vez de res, salmón y cerdo. Misma proteína, menos gasto."
+      :"Actívalo para gastar menos: cambia 3 cenas caras (res, salmón, cerdo) por opciones baratas con la misma proteína."}</div>
+  </div>`;
+  // — Semanal, plegado —
+  wEl.innerHTML=`
+  <div class="section-label" style="margin-top:18px">🗓️ Para la semana</div>
+  <details ${extremaOpen.menu?"open":""} ontoggle="extremaOpen.menu=this.open">
     <summary style="font-size:13px;font-weight:700;color:#ff8c42;padding:10px 0;cursor:pointer">📅 Menú de la semana · qué comer cada día</summary>
     ${days}
   </details>

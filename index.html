@@ -439,7 +439,7 @@ details[open] summary .chev{transform:rotate(90deg)}
 // PROFILE & CONSTANTS
 // ══════════════════════════════════════════════════════
 // PROFILE editable: arranca con estos valores por defecto y se sobreescribe con lo guardado.
-const APP_VERSION = "2026-11-17.1955"; // lo actualiza update.ps1 al publicar (aviso de versión nueva)
+const APP_VERSION = "2026-11-17.2004"; // lo actualiza update.ps1 al publicar (aviso de versión nueva)
 const PROFILE = Object.assign({
   name:"Rubiel", age:34, weight:83.4, height:180,
   startWeight:83.4, startDate:"2026-06-08",
@@ -2513,6 +2513,7 @@ function renderExtremaMenu(){
     </details>
     <div style="margin-top:10px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:${waColor};font-size:11.5px">⚖️ <b>Ajuste por tu peso:</b> ${wa.msg}</div>
     <button onclick="toggleCarbRule()" style="width:100%;margin-top:8px;padding:10px;border-radius:11px;font-size:12px;font-weight:600;${carbOk?"background:rgba(99,255,180,.12);border:1px solid rgba(99,255,180,.35);color:#63ffb4":"background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#aaa"}">${carbOk?"✅ Hoy cumplí la regla del arroz y pan":"🍚 ¿Hoy cumpliste la regla del arroz y pan? <span style=\"font-weight:400;color:#777\">· márcalo en la noche</span>"}</button>
+    <div style="font-size:10.5px;color:#888;margin-top:5px;line-height:1.45">✅ Márcalo si en <b>cada comida</b>: máximo <b>1 puño</b> de carbohidrato (¾ taza de arroz, 2 rebanadas de pan o 1 vianda) y <b>nunca arroz y pan juntos</b>. Si no comiste arroz ni pan, también cuenta. ❌ No lo marques si te serviste doble o comiste pan extra fuera de las comidas. <span style="color:#777">(Puño = carbohidrato · palma = proteína)</span></div>
     <button onclick="toggleCheapMode()" style="width:100%;margin-top:6px;padding:10px;border-radius:11px;font-size:12px;font-weight:600;${cheap?"background:rgba(255,200,60,.12);border:1px solid rgba(255,200,60,.4);color:#ffd166":"background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#aaa"}">💸 Menú económico: ${cheap?"activado":"desactivado"}</button>
     <div style="font-size:10.5px;color:#888;margin-top:6px;line-height:1.4">${cheap
       ?"Martes molleja, miércoles atún con huevo y sábado muslo de pollo en vez de res, salmón y cerdo. Misma proteína, menos gasto."

@@ -43,6 +43,8 @@ input::placeholder,textarea::placeholder{color:#555}
 .exercise-item:last-child{border-bottom:none}
 .mod-option{width:100%;padding:14px 16px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);text-align:left;font-size:14px;margin-bottom:8px;display:flex;align-items:center;gap:12px}
 .qbtn{flex:1;padding:10px;border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#aaa;font-size:13px;font-weight:600}
+/* "ver más" / "ver menos" según el desplegable esté cerrado o abierto */
+details[open] > summary .vm-more, details:not([open]) > summary .vm-less{display:none}
 .qbtn.sel{background:rgba(99,255,180,.12);border-color:rgba(99,255,180,.4);color:#63ffb4}
 details summary{list-style:none;outline:none;cursor:pointer}
 details summary::-webkit-details-marker{display:none}
@@ -437,7 +439,7 @@ details[open] summary .chev{transform:rotate(90deg)}
 // PROFILE & CONSTANTS
 // ══════════════════════════════════════════════════════
 // PROFILE editable: arranca con estos valores por defecto y se sobreescribe con lo guardado.
-const APP_VERSION = "2026-11-17.1858"; // lo actualiza update.ps1 al publicar (aviso de versión nueva)
+const APP_VERSION = "2026-11-17.1909"; // lo actualiza update.ps1 al publicar (aviso de versión nueva)
 const PROFILE = Object.assign({
   name:"Rubiel", age:34, weight:83.4, height:180,
   startWeight:83.4, startDate:"2026-06-08",
@@ -2460,7 +2462,7 @@ function renderExtremaMenu(){
     ⏰ Antes de las 2pm: solo agua, café negro o té sin azúcar<br>
     💧 2.5-3 L de agua · sin refrescos ni jugos
     <details ${extremaOpen.rules?"open":""} ontoggle="extremaOpen.rules=this.open">
-      <summary style="font-size:11.5px;color:#ff8c42;padding:6px 0 2px;cursor:pointer">ver más</summary>
+      <summary style="font-size:11.5px;color:#ff8c42;padding:6px 0 2px;cursor:pointer"><span class="vm-more">ver más ▾</span><span class="vm-less">ver menos ▴</span></summary>
       🎯 <b>~${t.cal} kcal</b> · <b>${t.prot}g proteína</b> al día (sin gym, déficit ${DEFICIT_LEVELS[PROFILE.deficitLevel]?.label.toLowerCase()||"moderado"})<br>
       🍚 Mejor mitad arroz y mitad frijoles. El pan, solo en el desayuno.<br>
       🍽️ Plato: ½ vegetales · ¼ proteína (2 palmas) · ¼ carbohidrato · 1 pulgar de grasa<br>

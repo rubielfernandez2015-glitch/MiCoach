@@ -172,6 +172,9 @@ details[open] summary .chev{transform:rotate(90deg)}
     </div>
   </div>
 
+  <!-- 💧 Agua del día -->
+  <div id="water-card" class="card" style="margin-bottom:10px"></div>
+
   <!-- Plan checklist (Fase 1) -->
   <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
     <div class="section-label" style="margin-bottom:0">Plan de hoy · ve marcando ✓</div>
@@ -184,6 +187,8 @@ details[open] summary .chev{transform:rotate(90deg)}
   <div id="next-meal" style="margin-bottom:10px"></div>
   <input type="file" id="plan-photo-input" accept="image/*" style="display:none" onchange="onPlanPhoto(event)">
   <div id="plan-list"></div>
+  <input type="file" id="fridge-input" accept="image/*" style="display:none" onchange="onFridgePhoto(event)">
+  <button onclick="openFridgePhoto()" style="width:100%;padding:12px;margin:4px 0 2px;border-radius:14px;background:rgba(255,180,60,.08);border:1px solid rgba(255,180,60,.25);color:#ffa94d;font-size:13.5px;font-weight:600">📸 ¿Qué cocino con lo que hay? <span style="font-weight:400;color:#a98">· foto de tu nevera</span></button>
   <div id="extrema-menu"></div>
 
   <!-- Meals actually logged -->
@@ -426,7 +431,7 @@ details[open] summary .chev{transform:rotate(90deg)}
 // PROFILE & CONSTANTS
 // ══════════════════════════════════════════════════════
 // PROFILE editable: arranca con estos valores por defecto y se sobreescribe con lo guardado.
-const APP_VERSION = "2026-11-17.1620"; // lo actualiza update.ps1 al publicar (aviso de versión nueva)
+const APP_VERSION = "2026-11-17.1632"; // lo actualiza update.ps1 al publicar (aviso de versión nueva)
 const PROFILE = Object.assign({
   name:"Rubiel", age:34, weight:83.4, height:180,
   startWeight:83.4, startDate:"2026-06-08",
@@ -618,14 +623,102 @@ function activeSlots(){ return isExtrema()?MEAL_SLOTS_EXTREMA:MEAL_SLOTS; }
 // Suma de las kcal base de las franjas activas: referencia para escalar cada comida al nivel de déficit.
 function slotsBaseCal(){ return activeSlots().reduce((a,s)=>a+s.cal,0); }
 
+// 💸 Modo económico: cambia las cenas con proteína cara (res, salmón, cerdo) por opciones baratas
+// con macros parecidas. Índice = día de la semana (0=Dom).
+const EXTREMA_CHEAP = {x3:{
+  2:"180 g de molleja de pollo guisada + ensalada + ½ taza de frijoles",
+  3:"1 lata de atún + 2 huevos duros + ensalada + 1 boniato pequeño",
+  6:"180 g de muslo de pollo sin piel + vegetales + 1 puño de yuca"
+}};
+function extremaSuggest(s,idx){
+  const i=((idx%s.opts.length)+s.opts.length)%s.opts.length;
+  return (PROFILE.cheapMode&&EXTREMA_CHEAP[s.id]&&EXTREMA_CHEAP[s.id][i])||s.opts[i];
+}
+
+// 🛒 Lista de compras para 1 semana del menú de la Rutina Extrema (cantidades calculadas del menú,
+// con un pequeño margen para el plan B). Cambia sola con el modo económico.
+function shoppingList(){
+  const c=!!PROFILE.cheapMode;
+  return [
+    {cat:"🥩 Proteínas", items:[
+      ["huevos", c?"32 huevos (1 cartón de 30 + 2)":"30 huevos (1 cartón)"],
+      ["pollo", "1 kg de pechuga de pollo"],
+      ...(c?[
+        ["muslo", "300 g de muslo de pollo"],
+        ["visceras", "500 g de hígado de res y/o molleja"],
+        ["atun", "3 latas de atún"]
+      ]:[
+        ["res", "250 g de res magra o picadillo"],
+        ["pescado", "250 g de salmón o pescado blanco"],
+        ["visceras", "250 g de hígado de res o molleja"],
+        ["cerdo", "250 g de lomo de cerdo magro"],
+        ["atun", "2 latas de atún"]
+      ])
+    ]},
+    {cat:"🥛 Lácteos y batidos", items:[
+      ["leche", "1 L de leche"],
+      ["yogur", "2 yogures griegos naturales"],
+      ["queso", "150 g de queso blanco"],
+      ["whey", c?"Whey (3 medidas) — opcional: si no hay, 2 huevos duros":"Proteína whey (3 medidas esta semana)"]
+    ]},
+    {cat:"🍚 Carbohidratos (medidos)", items:[
+      ["arroz", "250 g de arroz (crudo)"],
+      ["frijoles", "250 g de frijoles negros secos (o 2 latas)"],
+      ["pan", "Pan integral (4 rebanadas)"],
+      ["boniato", "3 boniatos medianos"],
+      ["yuca", "1 yuca pequeña"],
+      ["avena", "40 g de avena"]
+    ]},
+    {cat:"🥬 Vegetales y frutas", items:[
+      ["tomate", "Tomates (4-5)"],
+      ["cebolla", "Cebollas (3)"],
+      ["aji", "Ají o pimiento (2)"],
+      ["pepino", "Pepinos (2)"],
+      ["espinaca", "Espinaca o acelga (1 mazo)"],
+      ["ensalada", "Lechuga o col para ensaladas"],
+      ["salteado", "Vegetales para saltear (habichuelas, zanahoria, calabaza…)"],
+      ["frutas", "3 frutas + 1 plátano"],
+      ["aguacate", "1 aguacate pequeño"]
+    ]},
+    {cat:"🧂 Otros", items:[
+      ["mani", "Maní (30 g) + mantequilla de maní"],
+      ["cafe", "Café o té"],
+      ["canela", "Canela"],
+      ["spray", "Aceite en spray"]
+    ]}
+  ];
+}
+
+// ⚖️ Ajuste automático por tu peso (solo en Rutina Extrema): compara tu último pesaje con uno de
+// hace 12–28 días. Estancado (<0.15 kg/sem) → −150 kcal (¼ de puño menos de carbohidrato en la cena).
+// Demasiado rápido (>1 kg/sem) → +200 kcal (añade la merienda). No se acumula: se recalcula cada día.
+function weightAutoAdjust(){
+  if(!isExtrema()||weights.length<2) return {adj:0, msg:"Pésate 1-2 veces por semana en ayunas: con 2 semanas de pesajes ajusto tus calorías solo."};
+  const day=k=>new Date(k+"T12:00:00");
+  const last=weights[weights.length-1];
+  const sinceLast=(day(todayKey())-day(last.date))/864e5;
+  if(sinceLast>10) return {adj:0, msg:`Tu último pesaje fue hace ${Math.round(sinceLast)} días. Pésate para que pueda ajustar tu plan.`};
+  const ref=[...weights].reverse().find(w=>{const d=(day(last.date)-day(w.date))/864e5;return d>=12&&d<=28;});
+  if(!ref) return {adj:0, msg:"Sigue pesándote: cuando tenga 2 semanas de pesajes ajusto tus calorías solo."};
+  const days=(day(last.date)-day(ref.date))/864e5;
+  const rate=+((ref.weight-last.weight)/days*7).toFixed(2); // kg perdidos por semana
+  if(rate<0.15) return {adj:-150, rate, msg:`Estancado (${rate>0?"−"+rate:"+"+(-rate)} kg/sem): bajé 150 kcal → ¼ de puño menos de carbohidrato en la cena.`};
+  if(rate>1.0) return {adj:200, rate, msg:`Bajas muy rápido (−${rate} kg/sem): subí 200 kcal → haz la merienda para proteger tu músculo.`};
+  return {adj:0, rate, msg:`Ritmo ideal (−${rate} kg/sem). Sin cambios.`};
+}
+
 // Metas de la Rutina Extrema: TDEE sedentario (sin gym, ×1.25) con el mismo nivel de déficit de Ajustes,
 // y proteína 1.8 g/kg. Se calculan aparte para no pisar las metas del plan de gym.
 function extremaTargets(){
   const bmr=10*PROFILE.weight+6.25*PROFILE.height-5*PROFILE.age+5;
   const tdee=Math.round(bmr*1.25);
   const lvl=DEFICIT_LEVELS[PROFILE.deficitLevel]||DEFICIT_LEVELS.moderado;
-  return {tdee, cal:Math.max(1400,Math.round(tdee*(1-lvl.pct)/10)*10), prot:Math.round(PROFILE.weight*1.8)};
+  const wa=weightAutoAdjust();
+  return {tdee, cal:Math.max(1400,Math.round(tdee*(1-lvl.pct)/10)*10+wa.adj), prot:Math.round(PROFILE.weight*1.8), weightAdj:wa};
 }
+
+// 💧 Agua: vasos de 250 ml. Meta 10 vasos = 2.5 L.
+const WATER_GOAL = 10;
 function tgtCal(){ return isExtrema()?extremaTargets().cal:PROFILE.targetCalories; }
 function tgtProt(){ return isExtrema()?extremaTargets().prot:PROFILE.targetProtein; }
 function tgtTdee(){ return isExtrema()?extremaTargets().tdee:(PROFILE.tdee||2150); }
@@ -701,7 +794,7 @@ function buildPlan(seed){
   const meals=slots.map((s,i)=>({
     id:s.id, time:toHHMM(toMin(s.time)+delta), name:s.name, cal:s.cal, prot:s.prot,
     optional:!!s.optional,
-    suggest:s.opts[((s.byWeekday?dow:day+i)+seed)%s.opts.length]
+    suggest:s.byWeekday?extremaSuggest(s,dow+seed):s.opts[(day+seed+i)%s.opts.length]
   }));
   const plan={date:todayKey(), meals, seed, v:PLAN_VERSION, mode:PROFILE.planMode};
   lsSet("plan-"+todayKey(),plan);
@@ -855,7 +948,7 @@ document.addEventListener("DOMContentLoaded", function(){
     renderMsg("assistant",`🔁 Vi que ${_recovered.length===1?"quedó":"quedaron"} ${_recovered.length} sesión(es) de gym sin hacer. ${hoy?"La moví a HOY — hoy te toca recuperar ese entreno en vez de caminar.":"Las reprogramé a tus próximos días libres."}`,null,true);
   }
   scrollChat();
-  setInterval(renderNextMeal,60000); // refresca el contador "próxima comida"
+  setInterval(function(){renderNextMeal();renderWater();},60000); // refresca el contador "próxima comida"
   // Cambio de día automático: si pasa la medianoche con la app abierta, recarga al nuevo día
   // (solo si no estás escribiendo ni hay una respuesta en curso, para no interrumpirte).
   const _loadedDay=todayKey();
@@ -1290,6 +1383,7 @@ ${todayLog.meals.length>0?`Comidas: ${todayLog.meals.map(m=>`${m.time} ${m.descr
 HORARIO DE COMIDAS HOY (horas reales del plan): ${(dailyPlan&&dailyPlan.meals||[]).map(m=>`${m.time} ${m.name.replace(/^[^\s]+\s/,'')}`).join(" | ")}
 ${(todayLog.skippedMeals&&todayLog.skippedMeals.length)?`COMIDAS SALTADAS HOY (el usuario decidió NO comerlas): ${todayLog.skippedMeals.map(id=>{const s=(dailyPlan&&dailyPlan.meals||[]).find(x=>x.id===id);return s?s.time+" "+s.name.replace(/^[^\s]+\s/,''):id;}).join(", ")}. Su proteína ya se repartió en las comidas que quedan; las calorías se dejaron caer como déficit del día. No le insistas en recuperarlas salvo que pregunte.`:""}
 ${lsGet("plan-anchor-"+todayKey())?`⏰ El usuario se levantó ~${lsGet("plan-anchor-"+todayKey())}; las horas de arriba YA están recalculadas desde esa hora. Usa ESAS horas, no las de la rutina por defecto.`:""}
+AGUA HOY: ${todayLog.water||0}/${WATER_GOAL} vasos de 250 ml.${isExtrema()?` REGLA ARROZ/PAN HOY: ${todayLog.carbRule?"cumplida ✓":"sin marcar"}. AJUSTE POR PESO: ${extremaTargets().weightAdj.msg}${PROFILE.cheapMode?" MODO ECONÓMICO activo: prioriza proteínas baratas (huevo, atún, pollo, molleja, hígado, frijoles) en tus sugerencias.":""}`:""}
 Consumido: ${todayLog.totalCalories}kcal / ${budget}kcal · Proteína: ${todayLog.totalProtein}g/${tgtProt()}g · Quedan: ${calLeft}kcal
 ${todayLog.drankAlcohol?`⚠️ Alcohol: ${todayLog.alcoholCount} tragos (~${todayLog.alcoholCal}kcal)`:""}
 ${isExtrema()?"Sin gym por ahora (Rutina Extrema).":`Gym saltado esta semana: ${skipsThisWeek} veces ${skipsThisWeek>=2?"⚠️ URGENTE RECUPERAR":""}`}
@@ -1545,6 +1639,7 @@ function updateTodayUI(){
   // Marca el modo del día en su log: el balance semanal mide cada día con la meta de su modo.
   if(todayLog.mode!==PROFILE.planMode){todayLog.mode=PROFILE.planMode;lsSet("log-"+todayKey(),todayLog);}
   renderModeSwitch();
+  renderWater();
   renderPlan();
   renderExtremaMenu();
   renderHealth();
@@ -2275,6 +2370,8 @@ function renderModeSwitch(){
     ${btn(!ex,"🏋️ Plan Gym","gym","#63ffb4")}${btn(ex,"🔥 Rutina Extrema","extrema","#ff8c42")}
   </div>`;
 }
+// Estado abierto/cerrado de los desplegables (se re-pintan seguido; así no se cierran solos).
+const extremaOpen={menu:false, shop:false};
 function renderExtremaMenu(){
   const el=document.getElementById("extrema-menu");if(!el)return;
   if(!isExtrema()){el.innerHTML="";return;}
@@ -2288,9 +2385,12 @@ function renderExtremaMenu(){
     const on=d===today;
     days+=`<div style="padding:10px 12px;border-radius:12px;margin-bottom:6px;${on?"background:rgba(255,140,66,.08);border:1px solid rgba(255,140,66,.35)":"background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)"}">
       <div style="font-size:12.5px;font-weight:700;margin-bottom:5px;color:${on?"#ff8c42":"#ddd"}">${names[d]}${on?" · hoy":""} <span style="font-weight:400;color:#888;font-size:11px">· ${moveTxt(d)}</span></div>
-      <div style="font-size:11.5px;color:#bbb;line-height:1.5">🍳 <b>2-3pm</b> ${b.opts[d]}<br>🥤 <b>~6pm</b> <span style="color:#888">(opcional)</span> ${m.opts[d]}<br>🍗 <b>9pm</b> ${c.opts[d]}</div>
+      <div style="font-size:11.5px;color:#bbb;line-height:1.5">🍳 <b>2-3pm</b> ${extremaSuggest(b,d)}<br>🥤 <b>~6pm</b> <span style="color:#888">(opcional)</span> ${extremaSuggest(m,d)}<br>🍗 <b>9pm</b> ${extremaSuggest(c,d)}</div>
     </div>`;
   });
+  const wa=t.weightAdj||{adj:0,msg:""};
+  const waColor=wa.adj<0?"#ffa94d":wa.adj>0?"#9fd0ff":"#63ffb4";
+  const carbOk=!!todayLog.carbRule;
   el.innerHTML=`
   <div class="section-label" style="margin-top:16px">🔥 Rutina Extrema · tus reglas</div>
   <div class="card" style="font-size:12px;color:#ccc;line-height:1.6">
@@ -2299,13 +2399,137 @@ function renderExtremaMenu(){
     🍚 <b>1 puño de carbohidrato por comida</b>: ¾ taza de arroz, <i>o</i> 2 rebanadas de pan, <i>o</i> 1 vianda mediana. <b>Nunca arroz y pan juntos.</b> Mejor mitad arroz y mitad frijoles. El pan, solo en el desayuno.<br>
     🍽️ Plato: ½ vegetales · ¼ proteína (2 palmas) · ¼ carbohidrato · 1 pulgar de grasa<br>
     💧 2.5-3 L de agua · sin refrescos ni jugos<br>
-    🧑‍🍳 <b>Domingo:</b> cocina para la semana (1 kg de pollo, frijoles, 10 huevos duros, vegetales picados) y no improvisas con pan<br>
+    🧑‍🍳 <b>Domingo:</b> cocina para la semana (pollo, frijoles, huevos duros, vegetales picados) y no improvisas con pan<br>
     🆘 Plan B si no hay nada: revoltillo de 4 huevos + ½ lata de atún + ensalada
+    <div style="margin-top:10px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:${waColor};font-size:11.5px">⚖️ <b>Ajuste por tu peso:</b> ${wa.msg}</div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button onclick="toggleCarbRule()" style="flex:1;padding:9px 8px;border-radius:11px;font-size:11.5px;font-weight:600;${carbOk?"background:rgba(99,255,180,.12);border:1px solid rgba(99,255,180,.35);color:#63ffb4":"background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#aaa"}">${carbOk?"✅ Hoy cumplí la regla del arroz y pan":"⬜ ¿Cumpliste hoy la regla del arroz y pan?"}</button>
+      <button onclick="toggleCheapMode()" style="flex-shrink:0;padding:9px 10px;border-radius:11px;font-size:11.5px;font-weight:600;${PROFILE.cheapMode?"background:rgba(255,200,60,.12);border:1px solid rgba(255,200,60,.4);color:#ffd166":"background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#aaa"}">💸 Económico ${PROFILE.cheapMode?"ON":"OFF"}</button>
+    </div>
+    ${PROFILE.cheapMode?`<div style="font-size:10.5px;color:#998;margin-top:6px">Modo económico: cambié res, salmón y cerdo por molleja, atún con huevo y muslo de pollo. Misma proteína, menos gasto.</div>`:""}
   </div>
-  <details style="margin-top:4px">
+  <details ${extremaOpen.menu?"open":""} ontoggle="extremaOpen.menu=this.open" style="margin-top:4px">
     <summary style="font-size:13px;font-weight:700;color:#ff8c42;padding:10px 0;cursor:pointer">📅 Menú de la semana · qué comer cada día</summary>
     ${days}
+  </details>
+  <details ${extremaOpen.shop?"open":""} ontoggle="extremaOpen.shop=this.open">
+    <summary style="font-size:13px;font-weight:700;color:#63ffb4;padding:10px 0;cursor:pointer">🛒 Lista de compras de la semana</summary>
+    ${renderShoppingHtml()}
   </details>`;
+}
+
+// ── 🛒 Lista de compras: marcas por semana (shop-<lunes>) y precios que tú escribes (shop-prices) ──
+function shopChecks(){ return lsGet("shop-"+getWeekKey())||{}; }
+function shopPrices(){ return lsGet("shop-prices")||{}; }
+function shopTotal(){
+  const pr=shopPrices();let sum=0,n=0;
+  shoppingList().forEach(g=>g.items.forEach(([id])=>{const v=parseFloat(pr[id]);if(v>0){sum+=v;n++;}}));
+  return {sum:Math.round(sum*100)/100,n};
+}
+function shopTotalText(){
+  const t=shopTotal();
+  return t.n?`💰 Gasto estimado de la semana: <b>${t.sum.toLocaleString("es-ES")}</b> <span style="color:#777">(${t.n} productos con precio)</span>`
+            :`💰 Escribe el precio de cada cosa (en tu moneda) y te calculo cuánto gastas en comida a la semana.`;
+}
+function renderShoppingHtml(){
+  const ck=shopChecks(), pr=shopPrices();
+  let all=0,done=0,html="";
+  shoppingList().forEach(g=>{
+    html+=`<div style="font-size:11.5px;font-weight:700;color:#aaa;margin:10px 0 4px">${g.cat}</div>`;
+    g.items.forEach(([id,label])=>{
+      all++; const on=!!ck[id]; if(on) done++;
+      html+=`<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:10px;margin-bottom:4px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)">
+        <button onclick="toggleShop('${id}')" style="width:22px;height:22px;border-radius:6px;flex-shrink:0;border:2px solid ${on?"#63ffb4":"rgba(255,255,255,.2)"};background:${on?"#63ffb4":"transparent"};color:#0a0a0f;font-size:13px;font-weight:800">${on?"✓":""}</button>
+        <div style="flex:1;min-width:0;font-size:12px;${on?"text-decoration:line-through;color:#777":"color:#ddd"}">${label}</div>
+        <input type="number" inputmode="decimal" min="0" step="any" placeholder="precio" value="${pr[id]??""}" onchange="setShopPrice('${id}',this.value)" style="width:72px;flex-shrink:0;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#f0f0f0;font-size:12px">
+      </div>`;
+    });
+  });
+  return `<div style="font-size:11.5px;color:#888;margin-bottom:4px">Para 1 semana del menú. Marca lo que ya compraste (se reinicia cada lunes). ${done}/${all} listo.</div>
+    ${html}
+    <div id="shop-total" style="font-size:12px;color:#ffd166;margin:10px 0 8px;line-height:1.5">${shopTotalText()}</div>
+    <div style="display:flex;gap:8px;margin-bottom:6px">
+      <button onclick="copyShoppingList()" id="shop-copy-btn" style="flex:1;padding:10px;border-radius:11px;background:rgba(99,255,180,.1);border:1px solid rgba(99,255,180,.25);color:#63ffb4;font-size:12px;font-weight:600">📋 Copiar lista (para WhatsApp)</button>
+      <button onclick="clearShopChecks()" style="flex-shrink:0;padding:10px 12px;border-radius:11px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#aaa;font-size:12px">↺ Desmarcar</button>
+    </div>`;
+}
+function toggleShop(id){
+  const ck=shopChecks(); ck[id]=!ck[id]; lsSet("shop-"+getWeekKey(),ck); renderExtremaMenu();
+}
+function clearShopChecks(){ lsSet("shop-"+getWeekKey(),{}); renderExtremaMenu(); }
+// Solo actualiza el total (sin re-pintar), para no quitarte el foco mientras escribes precios.
+function setShopPrice(id,val){
+  const pr=shopPrices(); const v=parseFloat(val);
+  if(v>0) pr[id]=v; else delete pr[id];
+  lsSet("shop-prices",pr);
+  const el=document.getElementById("shop-total"); if(el) el.innerHTML=shopTotalText();
+}
+function copyShoppingList(){
+  const ck=shopChecks();
+  const lines=["🛒 Compras de la semana"];
+  shoppingList().forEach(g=>{ lines.push("",g.cat); g.items.forEach(([id,label])=>{ if(!ck[id]) lines.push("• "+label); }); });
+  const txt=lines.join("\n");
+  const btn=document.getElementById("shop-copy-btn");
+  const ok=()=>{ if(btn){btn.textContent="✅ Copiada — pégala donde quieras";setTimeout(()=>{btn.textContent="📋 Copiar lista (para WhatsApp)";},2500);} };
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(ok,()=>prompt("Copia la lista:",txt));
+  else prompt("Copia la lista:",txt);
+}
+function toggleCarbRule(){
+  todayLog.carbRule=!todayLog.carbRule; lsSet("log-"+todayKey(),todayLog); renderExtremaMenu();
+}
+function toggleCheapMode(){
+  PROFILE.cheapMode=!PROFILE.cheapMode; saveProfile();
+  regenPlanTimes(); // mismo menú y horas, con las cenas económicas (o normales) de vuelta
+}
+
+// ── 💧 Agua ─────────────────────────────────────────────────────────────────
+// Vasos de 250 ml. El "ritmo" reparte la meta entre tu 1ª franja del día y 12 h después:
+// si vas 2+ vasos por detrás, aviso suave (sin culpa).
+function addWater(d){
+  todayLog.water=Math.max(0,Math.min(20,(todayLog.water||0)+d));
+  lsSet("log-"+todayKey(),todayLog); renderWater();
+}
+function renderWater(){
+  const el=document.getElementById("water-card");if(!el)return;
+  const w=todayLog.water||0, pct=Math.min(100,Math.round(w/WATER_GOAL*100));
+  const meals=(dailyPlan&&dailyPlan.meals)||[];
+  const start=meals.length?toMin(meals[0].time):660;
+  const now=new Date(), nowMin=now.getHours()*60+now.getMinutes();
+  let elapsed=nowMin-start; if(elapsed<0) elapsed+=1440; // pasada la medianoche
+  const expected=Math.min(WATER_GOAL,Math.floor(Math.min(1,elapsed/720)*WATER_GOAL));
+  let hint="";
+  if(w>=WATER_GOAL) hint=`<div style="font-size:11px;color:#63ffb4;margin-top:6px">✅ Meta de agua cumplida. ¡Bien!</div>`;
+  else if(expected-w>=2) hint=`<div style="font-size:11px;color:#9fd0ff;margin-top:6px">💧 Vas un poco atrasado (a esta hora irías por ~${expected}). Tómate un vaso ahora.</div>`;
+  el.innerHTML=`<div style="display:flex;align-items:center;gap:10px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600">💧 Agua <span style="color:#9fd0ff">${w}/${WATER_GOAL} vasos</span> <span style="font-size:11px;color:#777">· ${(w*0.25).toLocaleString("es-ES")} L de ${(WATER_GOAL*0.25).toLocaleString("es-ES")} L</span></div>
+        <div style="height:6px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden;margin-top:7px"><div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#5ab0ff,#9fd0ff);border-radius:3px;transition:width .4s"></div></div>
+      </div>
+      <button onclick="addWater(-1)" style="width:32px;height:32px;border-radius:10px;flex-shrink:0;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#aaa;font-size:16px">−</button>
+      <button onclick="addWater(1)" style="height:32px;padding:0 12px;border-radius:10px;flex-shrink:0;background:rgba(90,176,255,.15);border:1px solid rgba(90,176,255,.35);color:#9fd0ff;font-size:13px;font-weight:700">+ vaso</button>
+    </div>${hint}`;
+}
+
+// ── 📸 "¿Qué cocino con lo que hay?" ───────────────────────────────────────────
+// Foto de la nevera/despensa → el coach arma la PRÓXIMA comida con eso, dentro de sus kcal/proteína.
+// Va por el chat normal; el texto deja claro que NO es comida ya comida (para que no la registre).
+function openFridgePhoto(){ document.getElementById("fridge-input").click(); }
+function onFridgePhoto(e){
+  const f=e.target.files[0]; e.target.value=""; if(!f) return;
+  compressImage(f,function(b64,dataUrl){
+    imgMime="image/jpeg"; imgB64=b64;
+    document.getElementById("img-thumb").src=dataUrl;
+    const plan=getAdjustedPlan();
+    const meals=(dailyPlan&&dailyPlan.meals)||[];
+    const now=new Date(), nowMin=now.getHours()*60+now.getMinutes();
+    const pend=meals.filter(s=>s.cal>0&&!isMealDone(s.id)&&!isMealSkipped(s.id));
+    const next=pend.find(s=>toMin(s.time)>=nowMin-60)||pend[0];
+    const a=next&&plan.adj[next.id];
+    const target=next?`mi próxima comida (${next.name.replace(/^[^\s]+\s/,"")} de las ${next.time}): unas ${a?a.cal:next.cal} kcal y ${a?a.prot:next.prot}g de proteína`:`una comida ligera alta en proteína (ya hice mis comidas de hoy)`;
+    document.getElementById("chat-input").value=`📸 Esto es lo que tengo en la nevera/despensa. OJO: NO lo he comido, no registres nada (no uses AUTO-LOG). Dime qué cocinar con ESTO para ${target}. Respeta mi regla: 1 puño de carbohidrato (arroz O pan, nunca los dos) y mitad del plato vegetales. Dame el plato con cantidades y la preparación en 3-4 pasos cortos. Si falta proteína, dime la opción más cercana con lo que se ve.`;
+    setView("chat");
+    sendMsg();
+  });
 }
 
 function modSkipGym(){
@@ -2626,6 +2850,14 @@ function getWeeklyReport(){
   const gymDays=logs.filter(l=>l.gymDone).length;
   const walkDays=logs.filter(l=>l.cardioDone).length;
   const alcoholDays=logs.filter(l=>l.drankAlcohol).length;
+  // 🔥 Rutina Extrema: movimiento sin gym (casa Lun/Mié/Vie, caminata el resto), agua y regla arroz/pan.
+  const ex=isExtrema();
+  const dowOf=l=>new Date(l.date+"T12:00:00").getDay();
+  const homeDays=logs.filter(l=>l.cardioDone&&GYM_SCHEDULE[dowOf(l)]).length;
+  const exWalkDays=logs.filter(l=>l.cardioDone&&!GYM_SCHEDULE[dowOf(l)]).length;
+  const waterLogs=logs.filter(l=>typeof l.water==="number");
+  const waterAvg=waterLogs.length?Math.round(waterLogs.reduce((a,l)=>a+l.water,0)/waterLogs.length*10)/10:null;
+  const carbDays=logs.filter(l=>l.carbRule).length;
   let qa=0,qm=0,qb=0;
   withData.forEach(l=>l.meals.forEach(m=>{const q=m.quality||"media";if(q==="alta")qa++;else if(q==="baja")qb++;else qm++;}));
   const totalMeals=qa+qm+qb;
@@ -2652,9 +2884,12 @@ function getWeeklyReport(){
   if(wk.pastSurplus>300) dev.push(`Exceso calórico acumulado (+${wk.pastSurplus} kcal)`);
   if(alcoholDays>=2) dev.push(`${alcoholDays} días con alcohol`);
   if(totalMeals>0 && qb/totalMeals>0.3) dev.push(`Muchas comidas de baja calidad (${qb} de ${totalMeals})`);
-  if(daysElapsed>=4 && gymDays<2) dev.push(`Pocas sesiones de gym (${gymDays})`);
+  if(!ex && daysElapsed>=4 && gymDays<2) dev.push(`Pocas sesiones de gym (${gymDays})`);
+  if(ex && daysElapsed>=4 && homeDays+exWalkDays<2) dev.push(`Poco movimiento (${homeDays+exWalkDays} día(s) de casa/caminata)`);
+  if(daysElapsed>=3 && waterAvg!==null && waterAvg<6) dev.push(`Poca agua (prom. ${waterAvg} vasos)`);
+  if(ex && daysElapsed>=3 && carbDays<Math.ceil(daysElapsed/2)) dev.push(`Regla del arroz y pan: ${carbDays} de ${daysElapsed} días`);
   if(daysElapsed>=3 && consistency<60) dev.push(`Registro inconsistente (${consistency}%)`);
-  return {daysElapsed,daysLogged,consistency,avgCal,avgProt,protAdh,gymDays,walkDays,alcoholDays,qa,qm,qb,totalMeals,trend,trendColor,wDelta,dev,wk};
+  return {ex,homeDays,exWalkDays,waterAvg,carbDays,daysElapsed,daysLogged,consistency,avgCal,avgProt,protAdh,gymDays,walkDays,alcoholDays,qa,qm,qb,totalMeals,trend,trendColor,wDelta,dev,wk};
 }
 
 function renderWeeklyReport(){
@@ -2667,10 +2902,11 @@ function renderWeeklyReport(){
     <div style="display:flex;gap:10px;margin-bottom:10px">
       ${stat("Consistencia",r.consistency+"%",r.consistency>=70?"#63ffb4":"#ffa94d")}
       ${stat("Proteína",r.protAdh+"%",r.protAdh>=80?"#63ffb4":"#ffa94d")}
-      ${stat("Gym",r.gymDays+" día(s)","#f0f0f0")}
+      ${r.ex?stat("Movimiento",(r.homeDays+r.exWalkDays)+" día(s)",(r.homeDays+r.exWalkDays)>=3?"#63ffb4":"#f0f0f0"):stat("Gym",r.gymDays+" día(s)","#f0f0f0")}
       ${stat("Peso",r.wDelta===null?"—":(r.wDelta>0?"+":"")+r.wDelta+"kg",r.wDelta!==null&&r.wDelta<0?"#63ffb4":r.wDelta>0?"#ff6464":"#f0f0f0")}
     </div>
-    <div style="font-size:11px;color:#888;margin-bottom:10px">Calidad: 🟢 ${r.qa} · 🟡 ${r.qm} · 🔴 ${r.qb} · Prom. ${r.avgCal} kcal/día</div>`;
+    <div style="font-size:11px;color:#888;margin-bottom:10px">Calidad: 🟢 ${r.qa} · 🟡 ${r.qm} · 🔴 ${r.qb} · Prom. ${r.avgCal} kcal/día</div>
+    ${r.ex?`<div style="font-size:11px;color:#aaa;margin:-4px 0 10px">🔥 Rutina Extrema: 🏠 casa ${r.homeDays}/3 · 🚶 caminatas ${r.exWalkDays}/3 · 🍚 regla arroz/pan ${r.carbDays}/${r.daysElapsed} días · 💧 agua ${r.waterAvg===null?"—":r.waterAvg+" vasos/día"}</div>`:(r.waterAvg!==null?`<div style="font-size:11px;color:#aaa;margin:-4px 0 10px">💧 Agua: ${r.waterAvg} vasos/día de promedio</div>`:"")}`;
   if(r.dev.length>0){
     html+=`<div style="padding:9px 12px;border-radius:10px;background:rgba(255,180,60,.08);border:1px solid rgba(255,180,60,.2);font-size:11.5px;color:#ffa94d;margin-bottom:10px"><b>A vigilar:</b> ${r.dev.join(" · ")}</div>`;
   }
@@ -2690,7 +2926,8 @@ async function coachWeeklyAnalysis(){
 - Días registrados: ${r.daysLogged}/${r.daysElapsed} (consistencia ${r.consistency}%)
 - Promedio: ${r.avgCal} kcal/día, proteína ${r.avgProt}g (${r.protAdh}% de meta ${tgtProt()}g)
 - Balance calórico semanal: ${r.wk.pastSurplus>0?"+":""}${r.wk.pastSurplus} kcal
-- Gym: ${r.gymDays} día(s), caminata: ${r.walkDays}, alcohol: ${r.alcoholDays} día(s)
+${r.ex?`- MODO: Rutina Extrema (sin gym; está construyendo su propio negocio, no lo presiones con el gym). Rutina en casa: ${r.homeDays}/3 días, caminatas: ${r.exWalkDays}/3, regla arroz/pan cumplida ${r.carbDays}/${r.daysElapsed} días, alcohol: ${r.alcoholDays} día(s)`:`- Gym: ${r.gymDays} día(s), caminata: ${r.walkDays}, alcohol: ${r.alcoholDays} día(s)`}
+- Agua promedio: ${r.waterAvg===null?"sin registrar":r.waterAvg+" vasos de 250 ml/día (meta "+WATER_GOAL+")"}
 - Calidad de comidas: ${r.qa} alta, ${r.qm} media, ${r.qb} baja
 - Cambio de peso: ${r.wDelta===null?"sin pesajes suficientes":(r.wDelta>0?"+":"")+r.wDelta+"kg"}
 - Tendencia detectada: ${r.trend}

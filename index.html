@@ -436,7 +436,7 @@ details[open] summary .chev{transform:rotate(90deg)}
 // PROFILE & CONSTANTS
 // ══════════════════════════════════════════════════════
 // PROFILE editable: arranca con estos valores por defecto y se sobreescribe con lo guardado.
-const APP_VERSION = "2026-11-17.1839"; // lo actualiza update.ps1 al publicar (aviso de versión nueva)
+const APP_VERSION = "2026-11-17.1851"; // lo actualiza update.ps1 al publicar (aviso de versión nueva)
 const PROFILE = Object.assign({
   name:"Rubiel", age:34, weight:83.4, height:180,
   startWeight:83.4, startDate:"2026-06-08",
@@ -787,17 +787,18 @@ function mealTimes(startStr,endStr,n){
 }
 
 // Construye el plan del día con horas FIJAS según la rutina real. 'seed' rota las sugerencias;
-// "Empezar ahora" desplaza TODO el día respecto a la 1ª franja (café).
-const PLAN_VERSION=3; // súbelo si cambia la estructura de MEAL_SLOTS, para regenerar planes guardados
+// Las horas recolocadas ("Empezar ahora" / "me levanté a las X") se guardan aparte en plan-times-<fecha>
+// ({id:"HH:MM"}) y pisan la hora fija de cada franja. Ver retimeFrom().
+const PLAN_VERSION=4; // súbelo si cambia la estructura de MEAL_SLOTS, para regenerar planes guardados
+                      // (v4: deja de usar plan-anchor, que corría TODO el día y mandaba comidas a la madrugada)
 function buildPlan(seed){
   const day=logicalNow().getDate(), dow=logicalNow().getDay();
   const slots=activeSlots();
-  const anchor=lsGet("plan-anchor-"+todayKey());
-  const delta=anchor?(toMin(anchor)-toMin(slots[0].time)):0;
+  const ov=lsGet("plan-times-"+todayKey())||{};
   // El +i desacopla cada franja: no rotan todas en bloque, así hay muchos más menús distintos.
   // Franjas byWeekday (Rutina Extrema): el menú es el del día de la semana; "Regenerar" pasa al de otro día.
   const meals=slots.map((s,i)=>({
-    id:s.id, time:toHHMM(toMin(s.time)+delta), name:s.name, cal:s.cal, prot:s.prot,
+    id:s.id, time:ov[s.id]||s.time, name:s.name, cal:s.cal, prot:s.prot,
     optional:!!s.optional,
     suggest:s.byWeekday?extremaSuggest(s,dow+seed):s.opts[(day+seed+i)%s.opts.length]
   }));
@@ -1387,7 +1388,7 @@ HOY (${todayKey()}): ${workout.emoji} Workout: ${workout.name} | ${todayLog.gymD
 ${todayLog.meals.length>0?`Comidas: ${todayLog.meals.map(m=>`${m.time} ${m.description}(${m.calories}kcal,${m.protein}g)`).join("; ")}`:"Sin comidas aún"}
 HORARIO DE COMIDAS HOY (horas reales del plan): ${(dailyPlan&&dailyPlan.meals||[]).map(m=>`${m.time} ${m.name.replace(/^[^\s]+\s/,'')}`).join(" | ")}
 ${(todayLog.skippedMeals&&todayLog.skippedMeals.length)?`COMIDAS SALTADAS HOY (el usuario decidió NO comerlas): ${todayLog.skippedMeals.map(id=>{const s=(dailyPlan&&dailyPlan.meals||[]).find(x=>x.id===id);return s?s.time+" "+s.name.replace(/^[^\s]+\s/,''):id;}).join(", ")}. Su proteína ya se repartió en las comidas que quedan; las calorías se dejaron caer como déficit del día. No le insistas en recuperarlas salvo que pregunte.`:""}
-${lsGet("plan-anchor-"+todayKey())?`⏰ El usuario se levantó ~${lsGet("plan-anchor-"+todayKey())}; las horas de arriba YA están recalculadas desde esa hora. Usa ESAS horas, no las de la rutina por defecto.`:""}
+${lsGet("plan-times-"+todayKey())?`⏰ El usuario recolocó su día (se levantó tarde o usó "Empezar ahora"): las horas de arriba YA están recalculadas. Usa ESAS horas, no las de la rutina por defecto.`:""}
 AGUA HOY: ${todayLog.water||0}/${WATER_GOAL} vasos de 250 ml.${isExtrema()?` REGLA ARROZ/PAN HOY: ${todayLog.carbRule?"cumplida ✓":"sin marcar"}. AJUSTE POR PESO: ${extremaTargets().weightAdj.msg}${PROFILE.cheapMode?" MODO ECONÓMICO activo: prioriza proteínas baratas (huevo, atún, pollo, molleja, hígado, frijoles) en tus sugerencias.":""}`:""}
 Consumido: ${todayLog.totalCalories}kcal / ${budget}kcal · Proteína: ${todayLog.totalProtein}g/${tgtProt()}g · Quedan: ${calLeft}kcal
 ${todayLog.drankAlcohol?`⚠️ Alcohol: ${todayLog.alcoholCount} tragos (~${todayLog.alcoholCal}kcal)`:""}
@@ -1989,14 +1990,16 @@ function renderNextMeal(){
   const meals=(dailyPlan&&dailyPlan.meals)||[];
   const pending=meals.filter(s=>!isMealDone(s.id)&&!isMealSkipped(s.id));
   if(pending.length===0){el.innerHTML="";return;}
-  const now=new Date(), nowMin=now.getHours()*60+now.getMinutes();
-  const next=pending.find(s=>toMin(s.time)>=nowMin)||pending[0];
-  const diff=toMin(next.time)-nowMin;
+  // Horas de madrugada (antes de las 5am) cuentan como el final del mismo día lógico.
+  const dm=m=>m<DAY_CUTOFF_HOUR*60?m+1440:m;
+  const now=new Date(), nowMin=dm(now.getHours()*60+now.getMinutes());
+  const next=pending.find(s=>dm(toMin(s.time))>=nowMin)||pending[0];
+  const diff=dm(toMin(next.time))-nowMin;
   let when;
   if(diff>0){const h=Math.floor(diff/60),m=diff%60;when="en "+(h>0?h+"h ":"")+m+"m";}
   else when="¡ahora!";
   const nm=next.name.replace(/^[^\s]+\s/,"");
-  el.innerHTML=`<div style="font-size:12px;color:#63ffb4;background:rgba(99,255,180,.06);border:1px solid rgba(99,255,180,.15);border-radius:10px;padding:8px 12px">⏭️ Próxima: <b>${nm}</b> · ${next.time} (${when})</div>`;
+  el.innerHTML=`<div style="font-size:12px;color:#63ffb4;background:rgba(99,255,180,.06);border:1px solid rgba(99,255,180,.15);border-radius:10px;padding:8px 12px">⏭️ Próxima: <b>${nm}</b> · ${fmt12(next.time)} (${when})</div>`;
 }
 
 function togglePlanMeal(id){
@@ -2071,13 +2074,38 @@ function regenPlanTimes(){
   dailyPlan=buildPlan((cur&&cur.seed)||0); // recalcula horas, mismas sugerencias
   updateTodayUI();
 }
-// "Acabo de despertar / empezar ahora": ancla la 1ª comida a la hora actual y recoloca el día.
+// Recoloca las horas del plan a partir de startMin (minutos del día).
+// · Sin comidas hechas/saltadas = "me acabo de levantar": se mueve todo el día (ayuno incluido).
+// · Con comidas hechas: esas NO se tocan; solo las PENDIENTES, la 1ª a la hora indicada.
+// Se mantiene la separación original entre comidas, pero si la última pasaría de las 02:30
+// (el día lógico cierra a las 5am) se comprimen para que quepan.
+const LAST_MEAL_LIMIT=26*60+30; // 02:30 del día siguiente
+function retimeFrom(startMin){
+  const meals=(dailyPlan&&dailyPlan.meals)||[];
+  const settled=s=>isMealDone(s.id)||isMealSkipped(s.id);
+  const anySettled=meals.some(s=>s.cal>0&&settled(s));
+  const pend=meals.filter(s=>anySettled?(s.cal>0&&!settled(s)):!settled(s));
+  if(!pend.length) return null;
+  const base={}; activeSlots().forEach(s=>{base[s.id]=toMin(s.time);});
+  const b0=base[pend[0].id], span=base[pend[pend.length-1].id]-b0;
+  let start=startMin; if(start<DAY_CUTOFF_HOUR*60) start+=1440; // madrugada = mismo día lógico
+  const scale=span>0?Math.max(0,Math.min(1,(LAST_MEAL_LIMIT-start)/span)):1;
+  const times=lsGet("plan-times-"+todayKey())||{};
+  pend.forEach(s=>{times[s.id]=toHHMM(start+(base[s.id]-b0)*scale);});
+  lsSet("plan-times-"+todayKey(),times);
+  regenPlanTimes();
+  return {wake:!anySettled, first:pend.find(s=>s.cal>0)||pend[0]};
+}
+// "Empezar ahora": si no has comido, arranca el día ahora; si ya comiste, recoloca solo lo que falta.
 function startDayNow(){
   const now=new Date();
-  const t=(now.getHours()<10?"0":"")+now.getHours()+":"+(now.getMinutes()<10?"0":"")+now.getMinutes();
-  lsSet("plan-anchor-"+todayKey(),t);
-  regenPlanTimes();
-  renderMsg("assistant",`🌅 ¡Buen día! Reorganicé tu día empezando ~${t}. Ve marcando conforme avances.`,null,true);
+  const r=retimeFrom(now.getHours()*60+now.getMinutes());
+  if(!r){ renderMsg("assistant","✅ Ya no te quedan comidas pendientes hoy. Nada que recolocar.",null,true); return; }
+  const f=(dailyPlan.meals||[]).find(m=>m.id===r.first.id);
+  renderMsg("assistant", r.wake
+    ? `🌅 ¡Buen día! Reorganicé tu día empezando ahora. Primera comida: ${f.name.replace(/^[^\s]+\s/,"")} a las ${fmt12(f.time)}.`
+    : `⏰ Recoloqué lo que te falta sin tocar lo que ya comiste. Próxima: ${f.name.replace(/^[^\s]+\s/,"")} a las ${fmt12(f.time)}.`,
+    null,true);
 }
 
 // Extrae una hora de un texto libre: "11", "11:30", "7am", "a las 14", "7 de la mañana". Devuelve "HH:MM" o null.
@@ -2098,8 +2126,7 @@ function parseTimeFromText(txt){
 
 // Ancla el día a la hora REAL que el usuario indica (no la actual) y recoloca las comidas a partir de ahí.
 function applyWakeTime(hhmm){
-  lsSet("plan-anchor-"+todayKey(),hhmm);
-  regenPlanTimes();
+  retimeFrom(toMin(hhmm));
 }
 
 // Reemplaza/llena un slot del plan con valores ya calculados
@@ -2779,7 +2806,7 @@ function saveSettings(){
 function resetDay(){
   const dk=document.getElementById("reset-date").value||todayKey();
   if(!confirm(`¿Reiniciar el día ${dk}?\nSe borran comidas, ejercicio, plan y chat de ese día. No se puede deshacer.`))return;
-  ["log-","chat-","plan-","plan-anchor-","gym-override-","gym-recovered-"].forEach(p=>localStorage.removeItem(p+dk));
+  ["log-","chat-","plan-","plan-anchor-","plan-times-","gym-override-","gym-recovered-"].forEach(p=>localStorage.removeItem(p+dk));
   if(dk===todayKey()){
     todayLog=freshLog();
     chatHistory=[];

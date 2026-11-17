@@ -82,6 +82,12 @@ details[open] summary .chev{transform:rotate(90deg)}
   </div>
 </div>
 
+<!-- Aviso de versión nueva (lo muestra checkForUpdate) -->
+<div id="update-banner" style="display:none;flex-shrink:0;padding:9px 16px;background:rgba(99,255,180,.1);border-bottom:1px solid rgba(99,255,180,.25);font-size:12.5px;color:#63ffb4;align-items:center;justify-content:space-between;gap:10px">
+  <span>✨ Hay una versión nueva de la app</span>
+  <button onclick="applyUpdate()" style="padding:6px 12px;border-radius:14px;background:#63ffb4;color:#0a0a0f;font-size:12px;font-weight:700;flex-shrink:0">Actualizar</button>
+</div>
+
 <!-- CHAT -->
 <div id="screen-chat" class="screen active" style="padding:0">
   <div id="chat-messages" style="flex:1;overflow-y:auto;padding:16px;-webkit-overflow-scrolling:touch"></div>
@@ -116,6 +122,9 @@ details[open] summary .chev{transform:rotate(90deg)}
     </div>
     <button onclick="openModify()" style="padding:8px 14px;border-radius:20px;background:rgba(255,180,60,.1);border:1px solid rgba(255,180,60,.25);color:#ffa94d;font-size:12px;font-weight:600">✏️ Modificar</button>
   </div>
+
+  <!-- Modo: Plan Gym ↔ 🔥 Rutina Extrema -->
+  <div id="mode-switch"></div>
 
   <!-- Workout card -->
   <div id="workout-card" class="card" style="margin-bottom:10px"></div>
@@ -175,6 +184,7 @@ details[open] summary .chev{transform:rotate(90deg)}
   <div id="next-meal" style="margin-bottom:10px"></div>
   <input type="file" id="plan-photo-input" accept="image/*" style="display:none" onchange="onPlanPhoto(event)">
   <div id="plan-list"></div>
+  <div id="extrema-menu"></div>
 
   <!-- Meals actually logged -->
   <div class="section-label" style="margin-top:16px">Comidas registradas hoy</div>
@@ -301,6 +311,8 @@ details[open] summary .chev{transform:rotate(90deg)}
     <button onclick="closeSettings()" class="btn-secondary" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888">Cancelar</button>
     <div style="border-top:1px solid rgba(255,255,255,.08);margin:16px 0 10px"></div>
     <div class="section-label">App y recordatorios</div>
+    <button onclick="manualUpdate()" id="upd-btn" class="btn-secondary" style="background:rgba(99,255,180,.12);border:1px solid rgba(99,255,180,.35);color:#63ffb4">🔄 Actualizar a la última versión</button>
+    <div id="upd-status" style="font-size:10.5px;color:#666;margin:6px 0 4px;line-height:1.4">Trae los cambios nuevos sin desinstalar nada. Tus datos se quedan igual.</div>
     <button onclick="installApp()" class="btn-secondary" style="background:rgba(99,255,180,.08);border:1px solid rgba(99,255,180,.2);color:#63ffb4">📲 Instalar en mi teléfono</button>
     <button onclick="enableReminders()" id="rem-btn" class="btn-secondary" style="background:rgba(255,180,60,.08);border:1px solid rgba(255,180,60,.2);color:#ffa94d">🔔 Activar recordatorios</button>
     <div style="font-size:10.5px;color:#666;margin-top:8px;line-height:1.4">Los recordatorios funcionan mejor con la app instalada/abierta. En iPhone, los avisos con la app cerrada son limitados (restricción de Apple).</div>
@@ -331,7 +343,7 @@ details[open] summary .chev{transform:rotate(90deg)}
     <div style="font-size:17px;font-weight:700;margin-bottom:6px">✏️ Modificar plan de hoy</div>
     <div style="font-size:13px;color:#888;margin-bottom:16px">¿Qué cambió? El plan se recalcula automáticamente.</div>
 
-    <button class="mod-option" onclick="modSkipGym()">
+    <button class="mod-option" onclick="modSkipGym()" id="mod-skip-gym-btn">
       <span style="font-size:22px">🚫</span>
       <div><div style="font-weight:600">No fui al gym hoy</div><div style="font-size:12px;color:#888;margin-top:2px">Se reprograma al próximo día libre</div></div>
     </button>
@@ -414,11 +426,13 @@ details[open] summary .chev{transform:rotate(90deg)}
 // PROFILE & CONSTANTS
 // ══════════════════════════════════════════════════════
 // PROFILE editable: arranca con estos valores por defecto y se sobreescribe con lo guardado.
+const APP_VERSION = "2026-11-17.1620"; // lo actualiza update.ps1 al publicar (aviso de versión nueva)
 const PROFILE = Object.assign({
   name:"Rubiel", age:34, weight:83.4, height:180,
   startWeight:83.4, startDate:"2026-06-08",
   targetCalories:1750, targetProtein:167, targetCarbs:140, targetFat:65, tdee:2150,
-  firstMeal:"14:30", lastMeal:"21:00", deficitLevel:"moderado"
+  firstMeal:"14:30", lastMeal:"21:00", deficitLevel:"moderado",
+  planMode:"gym" // "gym" = plan normal con gym · "extrema" = 🔥 Rutina Extrema (sin gym, 2 comidas)
 }, lsGet("profile")||{});
 function saveProfile(){ lsSet("profile", PROFILE); }
 
@@ -491,6 +505,19 @@ const WORKOUTS = {
     calBurn:320
   },
   WALK: {name:"Caminata", emoji:"🚶", exercises:[], calBurn:0, steps:8000, walkKcal:320},
+  // Solo en 🔥 Rutina Extrema (sin gym): 15 min en casa, sin equipo, para no perder músculo en déficit.
+  HOME: {
+    name:"Rutina en casa · 15 min", emoji:"🏠",
+    exercises:[
+      {name:"Lagartijas",sets:"3 × 10-15",note:"Si cuesta, apoya las rodillas"},
+      {name:"Sentadillas",sets:"3 × 15-20",note:"Baja hasta que el muslo quede paralelo"},
+      {name:"Zancadas",sets:"3 × 10",note:"Cada pierna"},
+      {name:"Fondos en silla",sets:"3 × 10",note:"Tríceps"},
+      {name:"Plancha",sets:"3 × 30-40s",note:"Core apretado"},
+      {name:"Superman",sets:"3 × 12",note:"Espalda baja"}
+    ],
+    calBurn:0
+  },
   REST: {name:"Descanso total", emoji:"😴", exercises:[], calBurn:0}
 };
 
@@ -549,8 +576,61 @@ const MEAL_SLOTS = [
     "Yogur griego + maní + cacao sin azúcar"
   ]}
 ];
-// Suma de las kcal base de MEAL_SLOTS: referencia para escalar cada comida al nivel de déficit activo.
-const MEAL_SLOTS_BASE_CAL = MEAL_SLOTS.reduce((a,s)=>a+s.cal,0);
+// ── 🔥 RUTINA EXTREMA (modo sin gym) ──────────────────────────────────────────
+// Modo INDEPENDIENTE del plan de gym: se activa/desactiva con un toque en "Hoy". Al volver al gym,
+// rutinas, metas y horarios del plan normal siguen intactos (no se toca MEAL_SLOTS ni PROFILE.target*).
+// 2 comidas fuertes (2-3pm y 9pm) + merienda opcional. Carbohidrato MEDIDO: 1 puño por comida,
+// arroz O pan, nunca ambos. Menú fijo por día de la semana (índice 0=Dom … 6=Sáb).
+const MEAL_SLOTS_EXTREMA = [
+  {id:"x0", time:"11:00", name:"💧 Ayuno: agua, café o té", cal:0, prot:0, opts:[
+    "Agua, café negro o té sin azúcar (no rompen el ayuno)"
+  ]},
+  {id:"x1", time:"14:30", name:"🍳 Desayuno fuerte", cal:700, prot:50, byWeekday:true, opts:[
+    "Revoltillo de 3 huevos + 3 claras con tomate y cebolla + 2 rebanadas de pan integral + 1 fruta",
+    "Revoltillo de 3 huevos + 3 claras con vegetales + ½ taza de arroz + ½ taza de frijoles + 1 vaso de leche",
+    "Bowl de pollo: 150 g de pechuga + ¾ taza de arroz con frijoles + ensalada grande + ¼ de aguacate",
+    "Tortilla de 3 huevos + 2 claras con espinaca + 2 rebanadas de pan integral con queso blanco + 1 fruta",
+    "3 huevos + 150 g de pollo desmenuzado + 1 boniato mediano + tomate y pepino",
+    "Rápido: batido de leche + 1 medida de whey + 40 g de avena + ½ plátano · 2 huevos duros",
+    "Revoltillo de 3 huevos con ½ lata de atún + 1 puño de yuca o boniato + ensalada"
+  ]},
+  {id:"x2", time:"18:00", name:"🥤 Merienda de proteína", cal:250, prot:30, optional:true, byWeekday:true, opts:[
+    "2 huevos duros + queso blanco",
+    "Batido de whey con agua o leche",
+    "Yogur griego natural + canela",
+    "2 huevos duros + 1 fruta",
+    "½ lata de atún + pepino y tomate",
+    "Batido de whey + 30 g de maní",
+    "Yogur griego + 1 cda de mantequilla de maní"
+  ]},
+  {id:"x3", time:"21:00", name:"🍗 Comida principal", cal:650, prot:55, byWeekday:true, opts:[
+    "Libre con cabeza: 1 plato de lo que quieras (proteína primero, sin repetir)",
+    "180 g de pechuga a la plancha + vegetales salteados + ½ taza de arroz",
+    "150 g de res magra o picadillo + ensalada + ½ taza de frijoles",
+    "180 g de salmón o pescado blanco + ensalada + 1 boniato pequeño",
+    "180 g de pollo guisado o a la plancha + vegetales + ½ taza de arroz",
+    "180 g de hígado de res o molleja encebollada + ensalada + ½ taza de arroz",
+    "180 g de lomo de cerdo magro + vegetales + 1 puño de yuca"
+  ]}
+];
+function isExtrema(){ return PROFILE.planMode==="extrema"; }
+function activeSlots(){ return isExtrema()?MEAL_SLOTS_EXTREMA:MEAL_SLOTS; }
+// Suma de las kcal base de las franjas activas: referencia para escalar cada comida al nivel de déficit.
+function slotsBaseCal(){ return activeSlots().reduce((a,s)=>a+s.cal,0); }
+
+// Metas de la Rutina Extrema: TDEE sedentario (sin gym, ×1.25) con el mismo nivel de déficit de Ajustes,
+// y proteína 1.8 g/kg. Se calculan aparte para no pisar las metas del plan de gym.
+function extremaTargets(){
+  const bmr=10*PROFILE.weight+6.25*PROFILE.height-5*PROFILE.age+5;
+  const tdee=Math.round(bmr*1.25);
+  const lvl=DEFICIT_LEVELS[PROFILE.deficitLevel]||DEFICIT_LEVELS.moderado;
+  return {tdee, cal:Math.max(1400,Math.round(tdee*(1-lvl.pct)/10)*10), prot:Math.round(PROFILE.weight*1.8)};
+}
+function tgtCal(){ return isExtrema()?extremaTargets().cal:PROFILE.targetCalories; }
+function tgtProt(){ return isExtrema()?extremaTargets().prot:PROFILE.targetProtein; }
+function tgtTdee(){ return isExtrema()?extremaTargets().tdee:(PROFILE.tdee||2150); }
+// Rutinas de gym (A–E) vs. caminata/descanso/casa.
+function isGymType(wt){ return PROGRAM.includes(wt); }
 
 // Coach-E: el plan de salud se calcula adaptativamente cada día en getHealthPlan().
 
@@ -612,22 +692,24 @@ function mealTimes(startStr,endStr,n){
 // "Empezar ahora" desplaza TODO el día respecto a la 1ª franja (café).
 const PLAN_VERSION=3; // súbelo si cambia la estructura de MEAL_SLOTS, para regenerar planes guardados
 function buildPlan(seed){
-  const day=logicalNow().getDate();
+  const day=logicalNow().getDate(), dow=logicalNow().getDay();
+  const slots=activeSlots();
   const anchor=lsGet("plan-anchor-"+todayKey());
-  const delta=anchor?(toMin(anchor)-toMin(MEAL_SLOTS[0].time)):0;
+  const delta=anchor?(toMin(anchor)-toMin(slots[0].time)):0;
   // El +i desacopla cada franja: no rotan todas en bloque, así hay muchos más menús distintos.
-  const meals=MEAL_SLOTS.map((s,i)=>({
+  // Franjas byWeekday (Rutina Extrema): el menú es el del día de la semana; "Regenerar" pasa al de otro día.
+  const meals=slots.map((s,i)=>({
     id:s.id, time:toHHMM(toMin(s.time)+delta), name:s.name, cal:s.cal, prot:s.prot,
     optional:!!s.optional,
-    suggest:s.opts[(day+seed+i)%s.opts.length]
+    suggest:s.opts[((s.byWeekday?dow:day+i)+seed)%s.opts.length]
   }));
-  const plan={date:todayKey(), meals, seed, v:PLAN_VERSION};
+  const plan={date:todayKey(), meals, seed, v:PLAN_VERSION, mode:PROFILE.planMode};
   lsSet("plan-"+todayKey(),plan);
   return plan;
 }
 function generatePlan(){
   const p=lsGet("plan-"+todayKey());
-  if(p&&p.v===PLAN_VERSION) return p;   // plan de hoy ya creado con la estructura actual
+  if(p&&p.v===PLAN_VERSION&&(p.mode||"gym")===PROFILE.planMode) return p; // plan de hoy ya creado (misma estructura y modo)
   return buildPlan((p&&p.seed)||0);      // sin plan, o de una versión vieja → reconstruir
 }
 let dailyPlan = generatePlan();
@@ -660,6 +742,13 @@ function gymWorkoutFor(dateObj){
 }
 
 function getTodayWorkoutType(){
+  // 🔥 Rutina Extrema: sin gym. Lun/Mié/Vie rutina en casa, Mar/Jue/Sáb caminata, Dom descanso.
+  // Ignora los entrenos de gym reprogramados (siguen guardados para cuando vuelva al plan de gym).
+  if(isExtrema()){
+    const dw=logicalNow().getDay();
+    if(GYM_SCHEDULE[dw]) return 'HOME';
+    return dw===0?'REST':'WALK';
+  }
   // Entreno reprogramado tiene prioridad
   const override=lsGet("gym-override-"+todayKey());
   if(override) return override;
@@ -682,7 +771,8 @@ function weekDayKeys(){
 
 // Presupuesto que "merecía" un día según su propia actividad (sin el ajuste semanal, para no recursar).
 function dayBudget(log){
-  let b=PROFILE.targetCalories;
+  // Cada día se mide con la meta del modo que tenía ese día (gym o Rutina Extrema).
+  let b=(log.mode==="extrema")?extremaTargets().cal:PROFILE.targetCalories;
   if(log.gymDone) b+=log.exerciseCal||300;
   if(log.cardioDone) b+=150;
   b-=(log.alcoholCal||0);
@@ -712,7 +802,7 @@ function getWeekStatus(){
 }
 
 function getTotalCalBudget(){
-  let budget = PROFILE.targetCalories;
+  let budget = tgtCal();
   if(todayLog.gymDone) budget += WORKOUTS[getTodayWorkoutType()]?.calBurn || 300;
   if(todayLog.cardioDone) budget += 150;
   budget -= (todayLog.alcoholCal || 0);
@@ -754,6 +844,9 @@ document.addEventListener("DOMContentLoaded", function(){
     renderMsg("assistant", welcome, null, false);
   }
   setupPWA();
+  checkForUpdate();
+  // Al volver a la app (el teléfono la deja abierta en memoria), revisa si hay versión nueva.
+  document.addEventListener("visibilitychange",function(){ if(!document.hidden) checkForUpdate(); });
   updateTodayUI();
   updateProgressUI();
   // Avisa si se recuperó algún gym perdido (una sola vez, el primer arranque tras el fallo).
@@ -773,6 +866,44 @@ document.addEventListener("DOMContentLoaded", function(){
     }
   },60000);
 });
+
+// ══════════════════════════════════════════════════════
+// ACTUALIZACIONES
+// ══════════════════════════════════════════════════════
+// APP_VERSION la sube update.ps1 en cada publicación. La app descarga index.html del servidor (sin caché),
+// lee su APP_VERSION y, si es distinta a la cargada, ofrece actualizar. Recargar NO borra datos
+// (localStorage es del mismo dominio), así que no hace falta desinstalar el marcador.
+async function fetchLatestVersion(){
+  const r=await fetch(location.pathname+"?check="+Date.now(),{cache:"no-store"});
+  if(!r.ok) throw new Error("HTTP "+r.status);
+  const m=(await r.text()).match(/const APP_VERSION\s*=\s*"([^"]+)"/);
+  return m?m[1]:null;
+}
+let _lastUpdCheck=0;
+async function checkForUpdate(){
+  if(Date.now()-_lastUpdCheck<60000) return; // como mucho 1 vez por minuto
+  _lastUpdCheck=Date.now();
+  try{
+    const v=await fetchLatestVersion();
+    if(v&&v!==APP_VERSION) document.getElementById("update-banner").style.display="flex";
+  }catch(e){} // sin conexión: no pasa nada
+}
+// Recarga trayendo la página nueva del servidor (la URL distinta evita la copia en memoria del teléfono).
+function applyUpdate(){
+  location.replace(location.pathname+"?v="+Date.now()+location.hash);
+}
+async function manualUpdate(){
+  const st=document.getElementById("upd-status"), btn=document.getElementById("upd-btn");
+  btn.textContent="⏳ Buscando…";
+  try{
+    const v=await fetchLatestVersion();
+    if(v&&v!==APP_VERSION){ st.textContent="✨ Versión nueva encontrada. Actualizando…"; setTimeout(applyUpdate,400); return; }
+    st.textContent="✅ Ya tienes la última versión ("+APP_VERSION+"). Tus datos se quedan igual.";
+  }catch(e){
+    st.textContent="⚠️ Sin conexión, no pude revisar. Inténtalo de nuevo con internet.";
+  }
+  btn.textContent="🔄 Actualizar a la última versión";
+}
 
 // ══════════════════════════════════════════════════════
 // PWA + RECORDATORIOS (Fase 5)
@@ -1033,7 +1164,7 @@ function recipeScore(r,t){
 // franja (desayuno con huevo → revoltillo, no una merienda); si nada coincide, busca en todas las recetas.
 function findRecipe(suggest,slotId){
   const t=(suggest||"").toLowerCase();
-  const catBySlot={m1:"Desayuno",m2:"Merienda",m3:"Cena",m4:"Antojo dulce"};
+  const catBySlot={m1:"Desayuno",m2:"Merienda",m3:"Cena",m4:"Antojo dulce",x1:"Desayuno",x2:"Merienda",x3:"Cena"};
   const cat=catBySlot[slotId];
   const pick=pool=>{ let best=null,bs=0; pool.forEach(r=>{const s=recipeScore(r,t);if(s>bs){bs=s;best=r;}}); return bs>0?best:null; };
   return pick(RECIPES.filter(r=>r.cat===cat)) || pick(RECIPES) || RECIPES.find(r=>r.cat===cat) || RECIPES[0];
@@ -1142,7 +1273,10 @@ function buildPrompt(){
 
   return `Eres el entrenador personal de Rubiel, 34 años, 1.80m, empezó en 83.4kg. Meta: perder grasa abdominal y ganar definición muscular. Horario nocturno: duerme ~3am-11am; al despertar (11am) solo café negro sin azúcar manteniendo el ayuno; primera comida (rompe-ayuno fuerte) 2:30pm; pre-entreno ~5pm; gym ~6pm; cena fuerte 8-9pm; comida ligera opcional con caseína 10-11pm si tiene hambre. Ventana de comida 2:30pm-~11pm. Tiene gimnasio en el edificio con equipos completos. Gym 3x/semana (Lun/Mié/Vie) con un programa ROTATIVO de 5 rutinas (A:Pecho+Tríceps, B:Espalda+Bíceps, C:Piernas+Hombros, D:Full-body Funcional, E:Core+Cardio) que avanza cada sesión para dar variedad. Mar/Jue/Sáb = caminata (~8,000 pasos, recuperación activa). Domingo = descanso total. IMPORTANTE: el día cuenta hasta las 5am (no medianoche). Una comida registrada de madrugada (12am-5am) pertenece al día anterior, no abre uno nuevo — la app ya la suma al día correcto. Si el usuario dice que algo que comió tarde es "de ayer", confírmale que sí cuenta para ese día y que su presupuesto de hoy se ajusta solo con el balance semanal.
 
-METAS: ${PROFILE.targetCalories}kcal base · ${PROFILE.targetProtein}g proteína · Déficit ${PROFILE.tdee-PROFILE.targetCalories}kcal/día (nivel: ${DEFICIT_LEVELS[PROFILE.deficitLevel]?.label||"Moderado"})
+${isExtrema()?`
+⚠️ MODO ACTUAL: 🔥 RUTINA EXTREMA (esto REEMPLAZA la rutina de gym descrita arriba). Rubiel dejó su trabajo y está construyendo su propio ingreso; ahora NO va al gym y pone toda su energía en eso. Nada de presionarlo ni regañarlo por el gym. Su día ahora: ayuno con agua/café/té hasta ~2pm; DESAYUNO FUERTE 2-3pm; merienda de proteína opcional ~6pm (solo si hay hambre o le falta proteína); COMIDA PRINCIPAL 9pm. Regla de carbohidratos: venía comiendo mucho arroz y pan → 1 puño por comida (¾ taza arroz cocido O 2 rebanadas de pan O 1 vianda mediana), nunca arroz y pan juntos, mejor mitad arroz/mitad frijoles, pan solo en el desayuno. Plato: ½ vegetales, ¼ proteína, ¼ carbohidrato. Movimiento: Lun/Mié/Vie rutina en casa de 15 min (lagartijas, sentadillas, zancadas, fondos, plancha, superman); Mar/Jue/Sáb caminar 30-40 min u 8000 pasos; Dom descanso. Consejo clave para él: cocinar el domingo para la semana (pollo, frijoles, huevos duros) para no improvisar con pan. Si dice que vuelve al gym, dile que toque "🏋️ Plan Gym" arriba en Hoy y todo su plan de gym vuelve tal cual.
+`:""}
+METAS: ${tgtCal()}kcal base · ${tgtProt()}g proteína · Déficit ${tgtTdee()-tgtCal()}kcal/día (nivel: ${DEFICIT_LEVELS[PROFILE.deficitLevel]?.label||"Moderado"})
 PRESUPUESTO HOY: ${budget}kcal (ajustado por ejercicio${todayLog.gymDone?` +${workout.calBurn||300}kcal gym`:""}${todayLog.cardioDone?" +150kcal cardio":""}${todayLog.alcoholCal>0?` -${todayLog.alcoholCal}kcal alcohol`:""})
 BALANCE SEMANAL: ${wk.closedDays===0?"Sin días cerrados aún esta semana.":`${wk.pastSurplus>0?"+":""}${wk.pastSurplus}kcal acumulados en ${wk.closedDays} día(s). ${wk.adjustment>0?`Ajuste hoy: -${wk.adjustment}kcal (recuperando exceso).`:wk.pastSurplus<-100?`Margen de ${-wk.pastSurplus}kcal a favor (se queda como déficit extra, NO se reparte para comer de más).`:"Sin ajuste."} Quedan ${wk.remaining} días.`}
 
@@ -1156,9 +1290,9 @@ ${todayLog.meals.length>0?`Comidas: ${todayLog.meals.map(m=>`${m.time} ${m.descr
 HORARIO DE COMIDAS HOY (horas reales del plan): ${(dailyPlan&&dailyPlan.meals||[]).map(m=>`${m.time} ${m.name.replace(/^[^\s]+\s/,'')}`).join(" | ")}
 ${(todayLog.skippedMeals&&todayLog.skippedMeals.length)?`COMIDAS SALTADAS HOY (el usuario decidió NO comerlas): ${todayLog.skippedMeals.map(id=>{const s=(dailyPlan&&dailyPlan.meals||[]).find(x=>x.id===id);return s?s.time+" "+s.name.replace(/^[^\s]+\s/,''):id;}).join(", ")}. Su proteína ya se repartió en las comidas que quedan; las calorías se dejaron caer como déficit del día. No le insistas en recuperarlas salvo que pregunte.`:""}
 ${lsGet("plan-anchor-"+todayKey())?`⏰ El usuario se levantó ~${lsGet("plan-anchor-"+todayKey())}; las horas de arriba YA están recalculadas desde esa hora. Usa ESAS horas, no las de la rutina por defecto.`:""}
-Consumido: ${todayLog.totalCalories}kcal / ${budget}kcal · Proteína: ${todayLog.totalProtein}g/${PROFILE.targetProtein}g · Quedan: ${calLeft}kcal
+Consumido: ${todayLog.totalCalories}kcal / ${budget}kcal · Proteína: ${todayLog.totalProtein}g/${tgtProt()}g · Quedan: ${calLeft}kcal
 ${todayLog.drankAlcohol?`⚠️ Alcohol: ${todayLog.alcoholCount} tragos (~${todayLog.alcoholCal}kcal)`:""}
-Gym saltado esta semana: ${skipsThisWeek} veces ${skipsThisWeek>=2?"⚠️ URGENTE RECUPERAR":""}
+${isExtrema()?"Sin gym por ahora (Rutina Extrema).":`Gym saltado esta semana: ${skipsThisWeek} veces ${skipsThisWeek>=2?"⚠️ URGENTE RECUPERAR":""}`}
 
 EJERCICIOS DE HOY (${workout.name}):
 ${workout.exercises.map(e=>`- ${e.name}: ${e.sets}${e.note?" ("+e.note+")":""}`).join("\n")}
@@ -1181,7 +1315,7 @@ INSTRUCCIONES:
 2. Breve y directo (máx 5 líneas salvo análisis de foto o plan del día).
 3. Cuando el usuario MUESTRE una foto de comida O DESCRIBA por texto algo que comió/va a comer (ej. "comí pollo con arroz", "me comí 2 huevos"), estima y añade al final exactamente: AUTO-LOG:nombre|calorias|proteina|calidad (números sin unidades; calidad = alta, media o baja según valor nutricional: alta=proteína magra+verduras/integral, baja=frito/azúcar/ultraprocesado). NO uses AUTO-LOG si solo pregunta o conversa sin haber comido algo concreto.
 4. Si dice "me levanté" (con o sin hora, ej. "me levanté 11"): muéstrale el plan completo del día (qué comer, qué ejercicio, metas) usando el HORARIO DE COMIDAS de arriba. Si dio una hora, esa es su hora REAL de despertar (no la actual) y las comidas ya se recolocaron desde ahí; confírmaselo.
-5. Si lleva 3+ días sin gym: marca como urgente e indica qué ejercicios priorizar.
+5. ${isExtrema()?"Está en Rutina Extrema (sin gym): NO marques urgencias por gym; anímalo a la caminata o la rutina en casa de hoy sin presión.":"Si lleva 3+ días sin gym: marca como urgente e indica qué ejercicios priorizar."}
 6. Si modifica plan: recalcula déficit y di cómo recuperarlo.
 7. SALUD (actúa como asesor de salud): cuando venga al caso (al despertar, tras alcohol, si falta proteína, antes del gym o de noche), RECONOCE lo que ya marcó hecho (✓) y sugiere SOLO lo pendiente (⬜) — 1-2 suplementos/hábitos SEGUROS del PLAN DE SALUD de hoy con el porqué en 1 línea; recuérdale que son opcionales. NUNCA recetes medicamentos con receta; si menciona un medicamento suyo, ayúdale solo a recordarlo y, ante dudas médicas, dile que consulte a su médico.
 8. Habla en español siempre.`;
@@ -1297,17 +1431,18 @@ function updateTodayUI(){
   const budget=getTotalCalBudget();
   const cal=todayLog.totalCalories,prot=todayLog.totalProtein;
   const calPct=Math.min(100,Math.round(cal/budget*100));
-  const protPct=Math.min(100,Math.round(prot/PROFILE.targetProtein*100));
+  const protPct=Math.min(100,Math.round(prot/tgtProt()*100));
   const calLeft=Math.max(0,budget-cal);
 
   // Workout card
   const wType=getTodayWorkoutType();
   const workout=WORKOUTS[wType]||WORKOUTS.REST;
   const skips=lsGet("gym-skips-"+getWeekKey())||0;
-  const isGymDay=(wType!=='WALK'&&wType!=='REST');
-  const dayLabel=isGymDay?`Gym hoy · rutina ${wType} (rota A→E)`:(wType==='WALK'?"Caminata hoy":"Descanso");
-  const exDone=isGymDay?todayLog.gymDone:(wType==='WALK'?todayLog.cardioDone:false);
-  const statusTxt=isGymDay?(todayLog.gymDone?"✅ Hecho":todayLog.gymSkipped?"Saltado":"Pendiente"):(wType==='WALK'?(todayLog.cardioDone?"✅ Hecho":"Pendiente"):"😴 Libre");
+  const isGymDay=isGymType(wType);
+  const isMove=(wType==='WALK'||wType==='HOME'); // caminata o rutina en casa: se marcan con cardioDone
+  const dayLabel=isGymDay?`Gym hoy · rutina ${wType} (rota A→E)`:(wType==='HOME'?"Sin gym · en casa, sin equipo":(wType==='WALK'?"Caminata hoy":"Descanso"));
+  const exDone=isGymDay?todayLog.gymDone:(isMove?todayLog.cardioDone:false);
+  const statusTxt=isGymDay?(todayLog.gymDone?"✅ Hecho":todayLog.gymSkipped?"Saltado":"Pendiente"):(isMove?(todayLog.cardioDone?"✅ Hecho":"Pendiente"):"😴 Libre");
   const statusStyle=exDone?"background:rgba(99,255,180,.12);color:#63ffb4;border:1px solid rgba(99,255,180,.25)":(isGymDay&&todayLog.gymSkipped)?"background:rgba(255,100,100,.1);color:#ff8080;border:1px solid rgba(255,100,100,.2)":"background:rgba(255,255,255,.05);color:#888;border:1px solid rgba(255,255,255,.08)";
   let workoutHtml=`<div style="display:flex;align-items:center;gap:10px;margin-bottom:${(workout.exercises.length>0||wType==='WALK')?10:0}px">
     <span style="font-size:24px">${workout.emoji}</span>
@@ -1318,7 +1453,10 @@ function updateTodayUI(){
     <div style="font-size:11px;padding:4px 10px;border-radius:20px;white-space:nowrap;${statusStyle}">${statusTxt}</div>
   </div>`;
   if(wType==='WALK'){
-    workoutHtml+=`<div style="border-top:1px solid rgba(255,255,255,.06);padding-top:10px;font-size:13px;color:#ccc">🎯 Meta: <b>${WORKOUTS.WALK.steps.toLocaleString("es-ES")} pasos</b> <span style="color:#888">(~${WORKOUTS.WALK.walkKcal} kcal). Recuperación activa entre días de gym.</span></div>`;
+    workoutHtml+=`<div style="border-top:1px solid rgba(255,255,255,.06);padding-top:10px;font-size:13px;color:#ccc">🎯 Meta: <b>${WORKOUTS.WALK.steps.toLocaleString("es-ES")} pasos</b> <span style="color:#888">(~${WORKOUTS.WALK.walkKcal} kcal). ${isExtrema()?"30-40 min: buen momento para despejarte y pensar en el negocio.":"Recuperación activa entre días de gym."}</span></div>`;
+  }
+  if(wType==='HOME'){
+    workoutHtml+=`<div style="font-size:12px;color:#aaa;margin-bottom:8px">3 vueltas · 30-60 s de descanso entre ejercicios. Con esto basta para no perder músculo mientras bajas grasa.</div>`;
   }
   if(workout.exercises.length>0){
     workoutHtml+=`<div style="border-top:1px solid rgba(255,255,255,.06);padding-top:10px">`;
@@ -1337,7 +1475,7 @@ function updateTodayUI(){
     }
     workoutHtml+=`</div>`;
   }
-  if(skips>=2&&!todayLog.gymDone) workoutHtml+=`<div style="margin-top:10px;padding:8px 12px;border-radius:10px;background:rgba(255,100,100,.08);border:1px solid rgba(255,100,100,.2);font-size:12px;color:#ff8080">⚠️ Llevas ${skips} días saltando gym esta semana. ¡Hoy es prioritario ir!</div>`;
+  if(skips>=2&&!todayLog.gymDone&&!isExtrema()) workoutHtml+=`<div style="margin-top:10px;padding:8px 12px;border-radius:10px;background:rgba(255,100,100,.08);border:1px solid rgba(255,100,100,.2);font-size:12px;color:#ff8080">⚠️ Llevas ${skips} días saltando gym esta semana. ¡Hoy es prioritario ir!</div>`;
   document.getElementById("workout-card").innerHTML=workoutHtml;
 
   // Calories
@@ -1360,7 +1498,7 @@ function updateTodayUI(){
   else bonusEl.style.display="none";
 
   // Protein
-  document.getElementById("prot-label").textContent=`${prot}g / ${PROFILE.targetProtein}g`;
+  document.getElementById("prot-label").textContent=`${prot}g / ${tgtProt()}g`;
   document.getElementById("prot-label").style.color=protPct>=100?"#63ffb4":"#ffa94d";
   document.getElementById("prot-bar").style.width=protPct+"%";
   document.getElementById("prot-bar").style.background=protPct>=100?"linear-gradient(90deg,#63ffb4,#3dd68c)":"linear-gradient(90deg,#ffa94d,#ff8c00)";
@@ -1404,7 +1542,11 @@ function updateTodayUI(){
         </div>
       </div>`).join("");
   }
+  // Marca el modo del día en su log: el balance semanal mide cada día con la meta de su modo.
+  if(todayLog.mode!==PROFILE.planMode){todayLog.mode=PROFILE.planMode;lsSet("log-"+todayKey(),todayLog);}
+  renderModeSwitch();
   renderPlan();
+  renderExtremaMenu();
   renderHealth();
   renderNextMeal();
   scheduleMealReminders();
@@ -1434,10 +1576,10 @@ function toggleWorkout(){
 function getHealthPlan(){
   const items=[];
   const budget=getTotalCalBudget();
-  const inDeficit=(PROFILE.tdee||2150)>budget;
-  const protGap=Math.max(0,PROFILE.targetProtein-todayLog.totalProtein);
+  const inDeficit=tgtTdee()>budget;
+  const protGap=Math.max(0,tgtProt()-todayLog.totalProtein);
   const wt=getTodayWorkoutType();
-  const isGymDay=(wt!=='WALK'&&wt!=='REST');
+  const isGymDay=isGymType(wt);
   const mealsLeft=(dailyPlan.meals||[]).filter(s=>!isMealDone(s.id)&&!isMealSkipped(s.id)).length;
   // — Base diaria (siempre) —
   items.push({id:"creatina",emoji:"💪",name:"Creatina monohidrato",dose:"5 g",why:"Base diaria para fuerza y músculo. Segura incluso en déficit.",hint:"con el rompe-ayuno"});
@@ -1572,7 +1714,7 @@ function qualityChip(q){
 // según lo ya consumido hoy, repartiendo proporcional al tamaño base de cada comida.
 function getAdjustedPlan(){
   const budget=getTotalCalBudget();
-  const protTarget=PROFILE.targetProtein;
+  const protTarget=tgtProt();
   const meals=dailyPlan.meals||[];
   // Comidas que aún tocan (ni comidas ni saltadas) y comidas que el usuario decidió saltar.
   const remaining=meals.filter(s=>!isMealDone(s.id)&&!isMealSkipped(s.id));
@@ -1592,7 +1734,7 @@ function getAdjustedPlan(){
   const sumBaseCal=remaining.reduce((a,s)=>a+s.cal,0)||1;
   const sumBaseProt=remaining.reduce((a,s)=>a+s.prot,0)||1;
   // Referencia de "comida normal" escalada al nivel de déficit activo (no al plan original de 1750kcal fijo).
-  const calScale=PROFILE.targetCalories/MEAL_SLOTS_BASE_CAL;
+  const calScale=tgtCal()/slotsBaseCal();
   const adj={};
   remaining.forEach(s=>{
     const cal=Math.max(0,Math.round(remCal*(s.cal/sumBaseCal)/5)*5); // redondeo a 5
@@ -1624,6 +1766,10 @@ function planExerciseInfo(){
     const w=WORKOUTS.WALK;
     return {kind:"walk", icon:"🚶", title:`Caminar ${w.steps.toLocaleString("es-ES")} pasos`,
       sub:`Recuperación activa · ~${w.walkKcal} kcal · +150 disponibles`, done:!!todayLog.cardioDone};
+  }
+  if(wt==='HOME'){
+    return {kind:"home", icon:"🏠", title:"Rutina en casa · 15 min", sub:"Sin equipo, 3 vueltas · +150 disponibles",
+      done:!!todayLog.cardioDone};
   }
   if(wt==='REST'){
     return {kind:"rest", icon:"😴", title:"Descanso total", sub:"Hoy toca recuperar. Camina ligero si quieres.",
@@ -1668,7 +1814,7 @@ function renderPlan(){
   // Exercise row first
   if(trackEx){
     html+=row(ex.done, ex.icon, ex.title, ex.sub,
-      `<span style="font-size:11px;color:#ffa94d">${ex.kind==='gym'?'ejercicio':'caminata'}</span>`,
+      `<span style="font-size:11px;color:#ffa94d">${ex.kind==='gym'?'ejercicio':ex.kind==='home'?'en casa':'caminata'}</span>`,
       "togglePlanExercise()", null);
   } else {
     // Día de descanso: fila informativa sin marcar
@@ -1803,7 +1949,7 @@ function adjustPlanMeal(id){
 
 function togglePlanExercise(){
   const wt=getTodayWorkoutType();
-  if(wt==='WALK'){
+  if(wt==='WALK'||wt==='HOME'){
     todayLog.cardioDone=!todayLog.cardioDone;
     if(todayLog.cardioDone)todayLog.exercised=true;
   } else if(wt==='REST'){
@@ -2055,6 +2201,7 @@ function openModify(){
   document.getElementById("alc-count-display").textContent=alcCount;
   document.getElementById("alc-cal-preview").textContent=alcCount*65;
   document.getElementById("alcohol-input-section").style.display="none";
+  document.getElementById("mod-skip-gym-btn").style.display=isExtrema()?"none":""; // sin gym en Rutina Extrema
   document.getElementById("modal-modify").classList.add("open");
 }
 function closeModify(){document.getElementById("modal-modify").classList.remove("open");}
@@ -2082,12 +2229,15 @@ function rescheduleWorkout(type,startOffset){
 // sin pulsar el botón de saltar. La marca gym-recovered-<fecha> evita reprocesar el mismo día.
 function catchUpMissedGym(){
   const moved=[];
+  if(isExtrema()) return moved;                           // 🔥 Rutina Extrema: sin gym, nada que recuperar
+  const resume=lsGet("gym-resume");                       // día en que volvió al plan de gym
   const start=new Date(gymProgramStart()+"T12:00:00");
   for(let i=7;i>=1;i--){                                  // de más antiguo a más reciente (última semana)
     const d=logicalNow();d.setDate(d.getDate()-i);
     if(d<start) continue;                                 // antes de empezar el programa: ignora
     if(!GYM_SCHEDULE[d.getDay()]) continue;               // solo días de gym del calendario
     const k=dateKey(d);
+    if(resume&&k<resume) continue;                        // días en Rutina Extrema: no se recuperan al volver
     if(lsGet("gym-recovered-"+k)) continue;               // ya procesado (saltado o recuperado)
     const log=lsGet("log-"+k);
     if(log&&log.gymDone) continue;                        // sí entrenó ese día
@@ -2096,6 +2246,66 @@ function catchUpMissedGym(){
     if(dest) moved.push({to:dest});
   }
   return moved;
+}
+
+// ══════════════════════════════════════════════════════
+// 🔥 RUTINA EXTREMA ↔ PLAN GYM
+// ══════════════════════════════════════════════════════
+// Cambia de modo sin perder nada: el plan de gym (rutinas A–E, metas, horarios) queda guardado tal cual.
+function setPlanMode(mode){
+  if(PROFILE.planMode===mode) return;
+  PROFILE.planMode=mode;
+  if(mode==="gym") lsSet("gym-resume",todayKey()); // al volver, no "recupera" gyms de los días sin gym
+  saveProfile();
+  dailyPlan=generatePlan();
+  updateTodayUI();
+  const t=extremaTargets();
+  renderMsg("assistant", mode==="extrema"
+    ? `🔥 Rutina Extrema activada. Desde hoy: ayuno con agua/café hasta las 2pm, desayuno fuerte 2-3pm, merienda de proteína opcional ~6pm y comida principal a las 9pm. Meta: ~${t.cal} kcal y ${t.prot}g de proteína. Carbohidrato: 1 puño por comida, arroz O pan, nunca los dos. En "Hoy" tienes el menú de toda la semana. Tu plan de gym queda guardado: cuando vuelvas, toca "🏋️ Plan Gym".`
+    : `🏋️ ¡De vuelta al gym! Tu plan de siempre está tal cual: rutinas A→E, metas de ${PROFILE.targetCalories} kcal / ${PROFILE.targetProtein}g y tus horarios. No te reprogramo los gyms de los días que estuviste sin ir.`,
+    null,true);
+}
+
+// Selector de modo (siempre visible en Hoy) + menú semanal y reglas cuando está en Rutina Extrema.
+function renderModeSwitch(){
+  const el=document.getElementById("mode-switch");if(!el)return;
+  const ex=isExtrema();
+  const btn=(on,label,mode,c)=>`<button onclick="setPlanMode('${mode}')" style="flex:1;padding:9px 6px;border-radius:11px;font-size:12.5px;font-weight:700;${on?`background:${c}22;border:1px solid ${c}88;color:${c}`:"background:transparent;border:1px solid transparent;color:#777"}">${label}</button>`;
+  el.innerHTML=`<div style="display:flex;gap:4px;padding:4px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);margin-bottom:10px">
+    ${btn(!ex,"🏋️ Plan Gym","gym","#63ffb4")}${btn(ex,"🔥 Rutina Extrema","extrema","#ff8c42")}
+  </div>`;
+}
+function renderExtremaMenu(){
+  const el=document.getElementById("extrema-menu");if(!el)return;
+  if(!isExtrema()){el.innerHTML="";return;}
+  const t=extremaTargets();
+  const today=logicalNow().getDay();
+  const names=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+  const [, b, m, c]=MEAL_SLOTS_EXTREMA;
+  const moveTxt=d=>GYM_SCHEDULE[d]?"🏠 Rutina en casa 15 min":(d===0?"😴 Descanso":"🚶 Caminar 30-40 min");
+  let days="";
+  [1,2,3,4,5,6,0].forEach(d=>{
+    const on=d===today;
+    days+=`<div style="padding:10px 12px;border-radius:12px;margin-bottom:6px;${on?"background:rgba(255,140,66,.08);border:1px solid rgba(255,140,66,.35)":"background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)"}">
+      <div style="font-size:12.5px;font-weight:700;margin-bottom:5px;color:${on?"#ff8c42":"#ddd"}">${names[d]}${on?" · hoy":""} <span style="font-weight:400;color:#888;font-size:11px">· ${moveTxt(d)}</span></div>
+      <div style="font-size:11.5px;color:#bbb;line-height:1.5">🍳 <b>2-3pm</b> ${b.opts[d]}<br>🥤 <b>~6pm</b> <span style="color:#888">(opcional)</span> ${m.opts[d]}<br>🍗 <b>9pm</b> ${c.opts[d]}</div>
+    </div>`;
+  });
+  el.innerHTML=`
+  <div class="section-label" style="margin-top:16px">🔥 Rutina Extrema · tus reglas</div>
+  <div class="card" style="font-size:12px;color:#ccc;line-height:1.6">
+    🎯 <b>~${t.cal} kcal</b> · <b>${t.prot}g proteína</b> al día (sin gym, déficit ${DEFICIT_LEVELS[PROFILE.deficitLevel]?.label.toLowerCase()||"moderado"})<br>
+    ⏰ Antes de las 2pm: solo agua, café negro o té sin azúcar<br>
+    🍚 <b>1 puño de carbohidrato por comida</b>: ¾ taza de arroz, <i>o</i> 2 rebanadas de pan, <i>o</i> 1 vianda mediana. <b>Nunca arroz y pan juntos.</b> Mejor mitad arroz y mitad frijoles. El pan, solo en el desayuno.<br>
+    🍽️ Plato: ½ vegetales · ¼ proteína (2 palmas) · ¼ carbohidrato · 1 pulgar de grasa<br>
+    💧 2.5-3 L de agua · sin refrescos ni jugos<br>
+    🧑‍🍳 <b>Domingo:</b> cocina para la semana (1 kg de pollo, frijoles, 10 huevos duros, vegetales picados) y no improvisas con pan<br>
+    🆘 Plan B si no hay nada: revoltillo de 4 huevos + ½ lata de atún + ensalada
+  </div>
+  <details style="margin-top:4px">
+    <summary style="font-size:13px;font-weight:700;color:#ff8c42;padding:10px 0;cursor:pointer">📅 Menú de la semana · qué comer cada día</summary>
+    ${days}
+  </details>`;
 }
 
 function modSkipGym(){
@@ -2107,7 +2317,7 @@ function modSkipGym(){
   const sk=(lsGet("gym-skips-"+getWeekKey())||0)+1;
   lsSet("gym-skips-"+getWeekKey(),sk);
   // Reprograma el entreno al próximo día libre (desde mañana)
-  const moved=(wt!=='REST'&&wt!=='WALK')?rescheduleWorkout(wt,1):null;
+  const moved=isGymType(wt)?rescheduleWorkout(wt,1):null;
   const movedTxt=moved?`Lo reprogramé para el ${moved.toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"})}.`:"No encontré un día libre cercano; lo retomas en tu próxima sesión.";
   closeModify();
   updateTodayUI();
@@ -2420,7 +2630,7 @@ function getWeeklyReport(){
   withData.forEach(l=>l.meals.forEach(m=>{const q=m.quality||"media";if(q==="alta")qa++;else if(q==="baja")qb++;else qm++;}));
   const totalMeals=qa+qm+qb;
   const consistency=daysElapsed?Math.round(daysLogged/daysElapsed*100):0;
-  const protAdh=PROFILE.targetProtein?Math.round(avgProt/PROFILE.targetProtein*100):0;
+  const protAdh=tgtProt()?Math.round(avgProt/tgtProt()*100):0;
   const wk=getWeekStatus();
   const wDelta=weights.length>=2?+(weights[weights.length-1].weight-weights[0].weight).toFixed(1):null;
   // Tendencia de recomposición
@@ -2478,7 +2688,7 @@ async function coachWeeklyAnalysis(){
   const r=getWeeklyReport();
   const prompt=`Eres el coach de Rubiel (recomposición corporal: ganar músculo + perder grasa). Analiza SU SEMANA con estos datos y dale un resumen motivador, claro y SIN castigo, máximo 6 líneas:
 - Días registrados: ${r.daysLogged}/${r.daysElapsed} (consistencia ${r.consistency}%)
-- Promedio: ${r.avgCal} kcal/día, proteína ${r.avgProt}g (${r.protAdh}% de meta ${PROFILE.targetProtein}g)
+- Promedio: ${r.avgCal} kcal/día, proteína ${r.avgProt}g (${r.protAdh}% de meta ${tgtProt()}g)
 - Balance calórico semanal: ${r.wk.pastSurplus>0?"+":""}${r.wk.pastSurplus} kcal
 - Gym: ${r.gymDays} día(s), caminata: ${r.walkDays}, alcohol: ${r.alcoholDays} día(s)
 - Calidad de comidas: ${r.qa} alta, ${r.qm} media, ${r.qb} baja
@@ -2553,8 +2763,8 @@ function updateProgressUI(){
     const avgCal=Math.round(past7.reduce((s,l)=>s+l.totalCalories,0)/past7.length);
     const avgProt=Math.round(past7.reduce((s,l)=>s+l.totalProtein,0)/past7.length);
     const stats=[
-      {label:"Cal. promedio",value:`${avgCal} kcal`,good:avgCal<=PROFILE.targetCalories+100},
-      {label:"Proteína prom.",value:`${avgProt}g`,good:avgProt>=PROFILE.targetProtein*.8},
+      {label:"Cal. promedio",value:`${avgCal} kcal`,good:avgCal<=tgtCal()+100},
+      {label:"Proteína prom.",value:`${avgProt}g`,good:avgProt>=tgtProt()*.8},
       {label:"Días gym",value:`${past7.filter(l=>l.gymDone).length} / ${past7.length}`,good:past7.filter(l=>l.gymDone).length>=Math.ceil(past7.length*.4)},
       {label:"Días alcohol",value:`${past7.filter(l=>l.drankAlcohol).length} / ${past7.length}`,good:past7.filter(l=>l.drankAlcohol).length<=2},
     ];
@@ -2580,7 +2790,7 @@ function updateProgressUI(){
           <div style="font-size:11px;color:#888;margin-top:2px">${l.gymDone?`<span style="color:#63ffb4">🏋️ Gym</span>`:""}${l.cardioDone?`<span style="color:#63ffb4"> 🚶</span>`:""}${l.drankAlcohol?`<span style="color:#ff6464"> 🥃${l.alcoholCount||""}</span>`:""}</div>
         </div>
         <div style="text-align:right">
-          <div style="font-size:13px;font-weight:700;color:${l.totalCalories<=PROFILE.targetCalories+100?"#63ffb4":"#ff6464"}">${l.totalCalories} kcal</div>
+          <div style="font-size:13px;font-weight:700;color:${l.totalCalories<=dayBudget(l)+100?"#63ffb4":"#ff6464"}">${l.totalCalories} kcal</div>
           <div style="font-size:11px;color:#888">${l.totalProtein}g prot.</div>
         </div>
       </div>`).join("");

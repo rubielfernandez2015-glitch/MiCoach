@@ -11,6 +11,13 @@ if (-not $changes) {
   exit 0
 }
 
+# Sube APP_VERSION en index.html: la app en el teléfono la compara y muestra "Hay una versión nueva".
+$f = Join-Path $PSScriptRoot "index.html"
+$html = [IO.File]::ReadAllText($f, [Text.Encoding]::UTF8)
+$ver = Get-Date -Format "yyyy-MM-dd.HHmm"
+$html = [regex]::Replace($html, 'const APP_VERSION = "[^"]*"', "const APP_VERSION = `"$ver`"")
+[IO.File]::WriteAllText($f, $html, (New-Object Text.UTF8Encoding($false)))
+
 git add -A
 git commit -m $m
 if ($?) {

@@ -319,7 +319,7 @@ details[open] summary .chev{transform:rotate(90deg)}
     </div>
     <div class="field-label">Meta proteína (g)</div>
     <input class="field-input" id="set-prot" type="number">
-    <div style="font-size:11px;color:#666;margin-top:12px;line-height:1.4">⏰ Tus horarios de comida están fijados a tu rutina (café 11h · rompe-ayuno 14:30 · pre-entreno 17h · cena 20:30 · ligera opcional 22:30). Si te levantas a otra hora: escríbelo en el chat con la hora real (ej. «me levanté 9») y recoloco el día desde ahí — o usa "🌅 Empezar ahora" (usa la hora actual).</div>
+    <div style="font-size:11px;color:#666;margin-top:12px;line-height:1.4">⏰ Horarios fijos de cada modo — 🏋️ Plan Gym: café 11h · rompe-ayuno 2:30pm · pre-entreno 5pm · cena 8:30pm · ligera opcional 10:30pm. 🔥 Rutina Extrema: desayuno 2:30pm · merienda opcional 6pm · comida 9pm. Si te levantas a otra hora, antes de marcar tu primera comida usa "🌅 Me acabo de levantar" en Hoy (o escribe en el chat «me levanté 1pm»). "↺ Horario normal" devuelve las horas fijas.</div>
     <button onclick="saveSettings()" class="btn-primary">Guardar</button>
     <button onclick="closeSettings()" class="btn-secondary" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888">Cancelar</button>
     <div style="border-top:1px solid rgba(255,255,255,.08);margin:16px 0 10px"></div>
@@ -439,7 +439,7 @@ details[open] summary .chev{transform:rotate(90deg)}
 // PROFILE & CONSTANTS
 // ══════════════════════════════════════════════════════
 // PROFILE editable: arranca con estos valores por defecto y se sobreescribe con lo guardado.
-const APP_VERSION = "2026-11-17.1951"; // lo actualiza update.ps1 al publicar (aviso de versión nueva)
+const APP_VERSION = "2026-11-17.1955"; // lo actualiza update.ps1 al publicar (aviso de versión nueva)
 const PROFILE = Object.assign({
   name:"Rubiel", age:34, weight:83.4, height:180,
   startWeight:83.4, startDate:"2026-06-08",
@@ -790,7 +790,7 @@ function mealTimes(startStr,endStr,n){
 }
 
 // Construye el plan del día con horas FIJAS según la rutina real. 'seed' rota las sugerencias;
-// Las horas recolocadas ("Empezar ahora" / "me levanté a las X") se guardan aparte en plan-times-<fecha>
+// Las horas recolocadas ("Me acabo de levantar" / "me levanté a las X") se guardan aparte en plan-times-<fecha>
 // ({id:"HH:MM"}) y pisan la hora fija de cada franja. Ver retimeFrom().
 const PLAN_VERSION=4; // súbelo si cambia la estructura de MEAL_SLOTS, para regenerar planes guardados
                       // (v4: deja de usar plan-anchor, que corría TODO el día y mandaba comidas a la madrugada)
@@ -1398,7 +1398,7 @@ HOY (${todayKey()}): ${workout.emoji} Workout: ${workout.name} | ${todayLog.gymD
 ${todayLog.meals.length>0?`Comidas: ${todayLog.meals.map(m=>`${m.time} ${m.description}(${m.calories}kcal,${m.protein}g)`).join("; ")}`:"Sin comidas aún"}
 HORARIO DE COMIDAS HOY (horas reales del plan): ${(dailyPlan&&dailyPlan.meals||[]).map(m=>`${m.time} ${m.name.replace(/^[^\s]+\s/,'')}`).join(" | ")}
 ${(todayLog.skippedMeals&&todayLog.skippedMeals.length)?`COMIDAS SALTADAS HOY (el usuario decidió NO comerlas): ${todayLog.skippedMeals.map(id=>{const s=(dailyPlan&&dailyPlan.meals||[]).find(x=>x.id===id);return s?s.time+" "+s.name.replace(/^[^\s]+\s/,''):id;}).join(", ")}. Su proteína ya se repartió en las comidas que quedan; las calorías se dejaron caer como déficit del día. No le insistas en recuperarlas salvo que pregunte.`:""}
-${lsGet("plan-times-"+todayKey())?`⏰ El usuario recolocó su día (se levantó tarde o usó "Empezar ahora"): las horas de arriba YA están recalculadas. Usa ESAS horas, no las de la rutina por defecto.`:""}
+${lsGet("plan-times-"+todayKey())?`⏰ El usuario recolocó su día (se levantó tarde o usó "Me acabo de levantar"): las horas de arriba YA están recalculadas. Usa ESAS horas, no las de la rutina por defecto.`:""}
 AGUA HOY: ${todayLog.water||0}/${WATER_GOAL} vasos de 250 ml.${todayLog.moveSkipped?" Hoy NO hizo su caminata/rutina en casa (ya marcado; en Rutina Extrema se recupera otro día de la semana)":""}${isExtrema()&&moveExtra(todayKey())?` Hoy tiene una RECUPERACIÓN extra: ${MOVE_NAMES[moveExtra(todayKey()).type]} (${todayLog.extraDone?"hecha ✓":"pendiente"}).`:""}${isExtrema()?` REGLA ARROZ/PAN HOY: ${todayLog.carbRule?"cumplida ✓":"sin marcar"}. AJUSTE POR PESO: ${extremaTargets().weightAdj.msg}${PROFILE.cheapMode?" MODO ECONÓMICO activo: prioriza proteínas baratas (huevo, atún, pollo, molleja, hígado, frijoles) en tus sugerencias.":""}`:""}
 Consumido: ${todayLog.totalCalories}kcal / ${budget}kcal · Proteína: ${todayLog.totalProtein}g/${tgtProt()}g · Quedan: ${calLeft}kcal
 ${todayLog.drankAlcohol?`⚠️ Alcohol: ${todayLog.alcoholCount} tragos (~${todayLog.alcoholCal}kcal)`:""}

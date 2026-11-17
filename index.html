@@ -439,7 +439,7 @@ details[open] summary .chev{transform:rotate(90deg)}
 // PROFILE & CONSTANTS
 // ══════════════════════════════════════════════════════
 // PROFILE editable: arranca con estos valores por defecto y se sobreescribe con lo guardado.
-const APP_VERSION = "2026-11-17.1909"; // lo actualiza update.ps1 al publicar (aviso de versión nueva)
+const APP_VERSION = "2026-11-17.1945"; // lo actualiza update.ps1 al publicar (aviso de versión nueva)
 const PROFILE = Object.assign({
   name:"Rubiel", age:34, weight:83.4, height:180,
   startWeight:83.4, startDate:"2026-06-08",
@@ -645,7 +645,7 @@ function extremaSuggest(s,idx){
 
 // 🛒 Lista de compras para 1 semana del menú de la Rutina Extrema (cantidades calculadas del menú,
 // con un pequeño margen para el plan B). Cambia sola con el modo económico.
-function shoppingList(){
+function extremaShoppingList(){
   const c=!!PROFILE.cheapMode;
   return [
     {cat:"🥩 Proteínas", items:[
@@ -877,6 +877,7 @@ function dayBudget(log){
   let b=(log.mode==="extrema")?extremaTargets().cal:PROFILE.targetCalories;
   if(log.gymDone) b+=log.exerciseCal||300;
   if(log.cardioDone) b+=150;
+  if(log.extraDone) b+=150;
   b-=(log.alcoholCal||0);
   return b;
 }
@@ -907,6 +908,7 @@ function getTotalCalBudget(){
   let budget = tgtCal();
   if(todayLog.gymDone) budget += WORKOUTS[getTodayWorkoutType()]?.calBurn || 300;
   if(todayLog.cardioDone) budget += 150;
+  if(todayLog.extraDone) budget += 150; // recuperación de caminata/casa
   budget -= (todayLog.alcoholCal || 0);
   // Ajuste semanal: reparte el exceso/déficit de los días cerrados entre los que quedan
   budget -= getWeekStatus().adjustment;
@@ -936,6 +938,7 @@ document.addEventListener("DOMContentLoaded", function(){
   checkSetup();
   // Recupera gyms pasados no realizados (antes de pintar la UI, para que HOY ya muestre el gym recuperado).
   const _recovered=catchUpMissedGym();
+  const _movesRecovered=catchUpMissedMoves();
   document.getElementById("today-date").textContent =
     logicalNow().toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long"});
 
@@ -956,6 +959,9 @@ document.addEventListener("DOMContentLoaded", function(){
   if(_recovered&&_recovered.length){
     const hoy=_recovered.some(m=>dateKey(m.to)===todayKey());
     renderMsg("assistant",`🔁 Vi que ${_recovered.length===1?"quedó":"quedaron"} ${_recovered.length} sesión(es) de gym sin hacer. ${hoy?"La moví a HOY — hoy te toca recuperar ese entreno en vez de caminar.":"Las reprogramé a tus próximos días libres."}`,null,true);
+  }
+  if(_movesRecovered.length){
+    renderMsg("assistant","🔁 "+_movesRecovered.map(m=>`Te faltó la ${m.type==='HOME'?"rutina en casa":"caminata"} del ${dayNameOf(m.from)}: ${m.to?"la pasé "+dayLabelOf(m.to)+" como recuperación":"esta semana ya no queda día, sin culpa"}.`).join(" "),null,true);
   }
   scrollChat();
   setInterval(function(){renderNextMeal();renderWater();},60000); // refresca el contador "próxima comida"
@@ -1393,7 +1399,7 @@ ${todayLog.meals.length>0?`Comidas: ${todayLog.meals.map(m=>`${m.time} ${m.descr
 HORARIO DE COMIDAS HOY (horas reales del plan): ${(dailyPlan&&dailyPlan.meals||[]).map(m=>`${m.time} ${m.name.replace(/^[^\s]+\s/,'')}`).join(" | ")}
 ${(todayLog.skippedMeals&&todayLog.skippedMeals.length)?`COMIDAS SALTADAS HOY (el usuario decidió NO comerlas): ${todayLog.skippedMeals.map(id=>{const s=(dailyPlan&&dailyPlan.meals||[]).find(x=>x.id===id);return s?s.time+" "+s.name.replace(/^[^\s]+\s/,''):id;}).join(", ")}. Su proteína ya se repartió en las comidas que quedan; las calorías se dejaron caer como déficit del día. No le insistas en recuperarlas salvo que pregunte.`:""}
 ${lsGet("plan-times-"+todayKey())?`⏰ El usuario recolocó su día (se levantó tarde o usó "Empezar ahora"): las horas de arriba YA están recalculadas. Usa ESAS horas, no las de la rutina por defecto.`:""}
-AGUA HOY: ${todayLog.water||0}/${WATER_GOAL} vasos de 250 ml.${isExtrema()?` REGLA ARROZ/PAN HOY: ${todayLog.carbRule?"cumplida ✓":"sin marcar"}. AJUSTE POR PESO: ${extremaTargets().weightAdj.msg}${PROFILE.cheapMode?" MODO ECONÓMICO activo: prioriza proteínas baratas (huevo, atún, pollo, molleja, hígado, frijoles) en tus sugerencias.":""}`:""}
+AGUA HOY: ${todayLog.water||0}/${WATER_GOAL} vasos de 250 ml.${todayLog.moveSkipped?" Hoy NO hizo su caminata/rutina en casa (ya marcado; en Rutina Extrema se recupera otro día de la semana)":""}${isExtrema()&&moveExtra(todayKey())?` Hoy tiene una RECUPERACIÓN extra: ${MOVE_NAMES[moveExtra(todayKey()).type]} (${todayLog.extraDone?"hecha ✓":"pendiente"}).`:""}${isExtrema()?` REGLA ARROZ/PAN HOY: ${todayLog.carbRule?"cumplida ✓":"sin marcar"}. AJUSTE POR PESO: ${extremaTargets().weightAdj.msg}${PROFILE.cheapMode?" MODO ECONÓMICO activo: prioriza proteínas baratas (huevo, atún, pollo, molleja, hígado, frijoles) en tus sugerencias.":""}`:""}
 Consumido: ${todayLog.totalCalories}kcal / ${budget}kcal · Proteína: ${todayLog.totalProtein}g/${tgtProt()}g · Quedan: ${calLeft}kcal
 ${todayLog.drankAlcohol?`⚠️ Alcohol: ${todayLog.alcoholCount} tragos (~${todayLog.alcoholCal}kcal)`:""}
 ${isExtrema()?"Sin gym por ahora (Rutina Extrema).":`Gym saltado esta semana: ${skipsThisWeek} veces ${skipsThisWeek>=2?"⚠️ URGENTE RECUPERAR":""}`}
@@ -1411,6 +1417,7 @@ CONOCIMIENTO NUTRICIONAL:
 - Comida ligera nocturna (10-11pm) = caseína (yogur griego, requesón, claras), baja en carbohidratos: proteína lenta para el músculo de noche sin frenar la pérdida de grasa. Es opcional; saltarla = un poco más de déficit.
 - Alimentos clave: huevo entero, aguacate, yogur griego (caseína nocturna), salmón (omega-3), espinaca (magnesio), semillas calabaza (zinc), pollo/carne.
 - Pasos: 1000 pasos ≈ 40kcal quemadas.
+- Hábitos populares (sé honesto: ayudan, no son milagro): agua al despertar (sí, hidratación); jengibre (digestión, algo antiinflamatorio); vinagre de manzana 1 cda diluida antes de comer (efecto pequeño en saciedad/azúcar; con pajita; no si hay reflujo o gastritis); pizca de sal marina en el agua solo si da dolor de cabeza en ayuno (no con presión alta); agua con gas sin azúcar como cambio del refresco. Lo que de verdad desinflama: dormir, déficit moderado, verduras de hoja, frutas de colores, omega-3 y menos ultraprocesados y alcohol. Folato: espinaca, brócoli, frijoles, aguacate, hígado.
 - Si supera calorías un día: el exceso se recupera distribuyendo en siguientes días.
 - Suplementos opcionales seguros y baratos (solo si pregunta o viene al caso): creatina monohidrato 5g/día (músculo), vitamina D si poco sol, omega-3 si poco pescado, multivitamínico en déficit, proteína en polvo si no llega a su meta. Siempre con moderación; no reemplazan comida; ante dudas médicas, consultar profesional.
 
@@ -1595,6 +1602,7 @@ function updateTodayUI(){
   let bonusParts=[];
   if(todayLog.gymDone) bonusParts.push(`+${workout.calBurn||300} gym`);
   if(todayLog.cardioDone) bonusParts.push("+150 cardio");
+  if(todayLog.extraDone) bonusParts.push("+150 recuperación");
   if(todayLog.alcoholCal>0) bonusParts.push(`-${todayLog.alcoholCal} alcohol`);
   if(wk.adjustment>0) bonusParts.push(`-${wk.adjustment} recup. semanal`);
   else if(wk.adjustment<0) bonusParts.push(`+${-wk.adjustment} margen semanal`);
@@ -1686,6 +1694,9 @@ function getHealthPlan(){
   const wt=getTodayWorkoutType();
   const isGymDay=isGymType(wt);
   const mealsLeft=(dailyPlan.meals||[]).filter(s=>!isMealDone(s.id)&&!isMealSkipped(s.id)).length;
+  // — Hábitos de la mañana —
+  items.push({id:"agua-am",emoji:"💧",name:"Agua al despertar",dose:"1-2 vasos · opcional con jengibre o limón",why:"Rehidrata tras dormir y te adelanta la meta de agua. El jengibre ayuda a la digestión y algo a la inflamación; buen hábito, no milagro. Si en el ayuno te da dolor de cabeza, añade una pizca de sal marina (no si tienes la presión alta).",hint:"al despertar"});
+  items.push({id:"vinagre",emoji:"🍎",name:"Vinagre de manzana (opcional)",dose:"1 cda en un vaso grande de agua",why:"Puede ayudar un poco a la saciedad y a que el azúcar suba menos tras comer. Siempre diluido y mejor con pajita (cuida los dientes). Evítalo si tienes reflujo o gastritis.",hint:"antes del desayuno fuerte"});
   // — Base diaria (siempre) —
   items.push({id:"creatina",emoji:"💪",name:"Creatina monohidrato",dose:"5 g",why:"Base diaria para fuerza y músculo. Segura incluso en déficit.",hint:"con el rompe-ayuno"});
   items.push({id:"vitd",emoji:"☀️",name:"Vitamina D3",dose:"1000–2000 UI",why:"Tu horario nocturno = poco sol. Apoya ánimo, energía y hueso.",hint:"con el rompe-ayuno"});
@@ -1698,6 +1709,7 @@ function getHealthPlan(){
     items.push({id:"multi",emoji:"🟢",name:"Multivitamínico",dose:"1 al día",why:"Estás en déficit calórico: respaldo de micronutrientes.",hint:"con el rompe-ayuno"});
   if(todayLog.drankAlcohol)
     items.push({id:"hidrata",emoji:"💧",name:"Hidratación + electrolitos",dose:"2–3 vasos extra",why:"Tomaste alcohol: hidrátate y repón electrolitos para evitar el bajón de mañana.",hint:"ahora y durante el día"});
+  items.push({id:"verde-fruta",emoji:"🥬",name:"1 verde + 1 fruta de color",dose:"en tus comidas de hoy",why:"Folato (espinaca, brócoli, frijoles, aguacate; el hígado es el campeón) y antioxidantes (frutas de colores, tomate, cacao, café o té verde). Esto sí desinflama de verdad.",hint:"en tus comidas"});
   items.push({id:"omega3",emoji:"🐟",name:"Omega-3 (EPA/DHA)",dose:"1–2 g",why:"Si hoy no comiste pescado azul. Antiinflamatorio y salud cardiovascular.",hint:"con la cena"});
   items.push({id:"magnesio",emoji:"🌙",name:"Magnesio (glicinato)",dose:"~300 mg antes de dormir",why:"Mejora el sueño y la recuperación — clave con tu horario 3am-11am.",hint:"antes de dormir"});
   return items;
@@ -1890,12 +1902,15 @@ function renderPlan(){
   if(sb) sb.style.display=dayStarted()?"none":"";
   if(rb) rb.style.display=lsGet("plan-times-"+todayKey())?"":"none";
   const ex=planExerciseInfo();
-  const trackEx=ex.kind!=='rest';
+  const isMove=(ex.kind==='walk'||ex.kind==='home');
+  const moveSkipped=isMove&&!!todayLog.moveSkipped;
+  const trackEx=ex.kind!=='rest'&&!moveSkipped; // "no lo hice" sale del %, como una comida saltada
+  const extra=isExtrema()?moveExtra(todayKey()):null; // recuperación asignada a hoy
   const meals=dailyPlan.meals||[];
   const required=meals.filter(s=>!s.optional&&!isMealSkipped(s.id)); // opcional y saltadas no cuentan en el %
   const doneMeals=required.filter(s=>isMealDone(s.id)).length;
-  const totalItems=required.length+(trackEx?1:0);
-  const doneItems=doneMeals+((trackEx&&ex.done)?1:0);
+  const totalItems=required.length+(trackEx?1:0)+(extra?1:0);
+  const doneItems=doneMeals+((trackEx&&ex.done)?1:0)+((extra&&todayLog.extraDone)?1:0);
   const pct=totalItems>0?Math.round(doneItems/totalItems*100):0;
 
   // Compliance bar
@@ -1920,16 +1935,29 @@ function renderPlan(){
 
   let html="";
   // Exercise row first
-  if(trackEx){
+  if(moveSkipped){
+    html+=`<div class="card" style="display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:8px;opacity:.5">
+      <button onclick="toggleSkipMove()" title="Retomar" style="width:26px;height:26px;border-radius:8px;flex-shrink:0;border:2px solid rgba(255,255,255,.18);background:transparent;color:#999;font-size:14px">⊘</button>
+      <div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600;text-decoration:line-through;color:#888">${ex.icon} ${ex.title}</div>
+      <div style="font-size:11.5px;color:#777;margin-top:2px">Hoy no lo hiciste${isExtrema()?" · se recupera más adelante en la semana":""}</div></div>
+      <button onclick="toggleSkipMove()" style="font-size:11px;color:#9fd0ff;background:none;padding:0;flex-shrink:0">↩︎ retomar</button>
+    </div>`;
+  } else if(trackEx){
+    const skipBtn=(isMove&&!ex.done)?`<button onclick="toggleSkipMove()" style="display:block;margin-top:4px;font-size:11px;color:#ff9b9b;background:none;padding:0">⊘ no lo hice</button>`:"";
     html+=row(ex.done, ex.icon, ex.title, ex.sub,
       `<span style="font-size:11px;color:#ffa94d">${ex.kind==='gym'?'ejercicio':ex.kind==='home'?'en casa':'caminata'}</span>`,
-      "togglePlanExercise()", null);
+      "togglePlanExercise()", skipBtn);
   } else {
     // Día de descanso: fila informativa sin marcar
     html+=`<div class="card" style="display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:8px">
       <div style="width:26px;text-align:center;font-size:18px;flex-shrink:0">${ex.icon}</div>
       <div style="flex:1;min-width:0"><div style="font-size:13.5px;font-weight:600">${ex.title}</div><div style="font-size:11.5px;color:#888;margin-top:2px">${ex.sub}</div></div>
     </div>`;
+  }
+  if(extra){
+    html+=row(!!todayLog.extraDone, "🔁", "Recuperación: "+MOVE_NAMES[extra.type],
+      "Te faltó la del "+dayNameOf(extra.from)+" · +150 disponibles",
+      `<span style="font-size:11px;color:#9fd0ff">extra</span>`, "toggleExtraMove()", null);
   }
   // Resumen de re-planificación en tiempo real (Coach-A)
   const plan=getAdjustedPlan();
@@ -2437,7 +2465,15 @@ const extremaOpen={rules:false, menu:false, shop:false};
 function renderExtremaMenu(){
   const rEl=document.getElementById("extrema-rules"), wEl=document.getElementById("extrema-weekly");
   if(!rEl||!wEl)return;
-  if(!isExtrema()){rEl.innerHTML="";wEl.innerHTML="";return;}
+  if(!isExtrema()){
+    rEl.innerHTML="";
+    wEl.innerHTML=`<div class="section-label" style="margin-top:18px">🗓️ Para la semana</div>
+    <details ${extremaOpen.shop?"open":""} ontoggle="extremaOpen.shop=this.open">
+      <summary style="font-size:13px;font-weight:700;color:#63ffb4;padding:10px 0;cursor:pointer">🛒 Lista de compras de la semana</summary>
+      ${renderShoppingHtml()}
+    </details>`;
+    return;
+  }
   const t=extremaTargets();
   const today=logicalNow().getDay();
   const names=["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
@@ -2467,7 +2503,8 @@ function renderExtremaMenu(){
       🍚 Mejor mitad arroz y mitad frijoles. El pan, solo en el desayuno.<br>
       🍽️ Plato: ½ vegetales · ¼ proteína (2 palmas) · ¼ carbohidrato · 1 pulgar de grasa<br>
       🧑‍🍳 <b>Domingo:</b> cocina para la semana (pollo, frijoles, huevos duros, vegetales picados) y no improvisas con pan<br>
-      🆘 Plan B si no hay nada: revoltillo de 4 huevos + ½ lata de atún + ensalada
+      🆘 Plan B si no hay nada: revoltillo de 4 huevos + ½ lata de atún + ensalada<br>
+      🫧 Agua con gas sin azúcar: vale como cambio del refresco (llena y no suma calorías)
     </details>
     <div style="margin-top:10px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:${waColor};font-size:11.5px">⚖️ <b>Ajuste por tu peso:</b> ${wa.msg}</div>
     <button onclick="toggleCarbRule()" style="width:100%;margin-top:8px;padding:10px;border-radius:11px;font-size:12px;font-weight:600;${carbOk?"background:rgba(99,255,180,.12);border:1px solid rgba(99,255,180,.35);color:#63ffb4":"background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#aaa"}">${carbOk?"✅ Hoy cumplí la regla del arroz y pan":"🍚 ¿Hoy cumpliste la regla del arroz y pan? <span style=\"font-weight:400;color:#777\">· márcalo en la noche</span>"}</button>
@@ -2488,6 +2525,182 @@ function renderExtremaMenu(){
     ${renderShoppingHtml()}
   </details>`;
 }
+
+// ── 🔁 Recuperar caminata / rutina en casa (solo Rutina Extrema) ─────────────────
+// No son diarias (casa Lun/Mié/Vie, caminata Mar/Jue/Sáb, Dom descanso), así que si fallas una se pasa
+// como "extra" al siguiente día de ESTA semana que aún no tenga extra (el domingo también vale).
+// Máximo 1 extra por día y una recuperación no se vuelve a recuperar (sin bola de nieve ni culpa).
+const MOVE_NAMES={WALK:"Caminar 30-40 min", HOME:"Rutina en casa 15 min"};
+const DAY_NAMES=["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
+function scheduledMove(dateObj){ const dw=dateObj.getDay(); return GYM_SCHEDULE[dw]?'HOME':(dw===0?'REST':'WALK'); }
+function moveExtra(k){ return lsGet("move-extra-"+k); }
+function scheduleMakeup(type, fromKey, startOffset){
+  const weekEnd=weekDayKeys()[6];
+  for(let i=startOffset;i<=6;i++){
+    const d=logicalNow(); d.setDate(d.getDate()+i); const k=dateKey(d);
+    if(k>weekEnd) break;
+    if(moveExtra(k)) continue;
+    lsSet("move-extra-"+k,{type, from:fromKey});
+    return d;
+  }
+  return null;
+}
+function dayNameOf(k){ return DAY_NAMES[new Date(k+"T12:00:00").getDay()]; }
+function dayLabelOf(d){ return dateKey(d)===todayKey()?"para hoy":"al "+DAY_NAMES[d.getDay()]; }
+// Al abrir la app: días ya pasados de esta semana en Rutina Extrema cuyo movimiento quedó sin hacer
+// (ni marcado ni con "no lo hice") → se recuperan desde hoy. move-handled-<fecha> evita repetir.
+function catchUpMissedMoves(){
+  const moved=[];
+  if(!isExtrema()) return moved;
+  const since=lsGet("extrema-since")||todayKey(), tk=todayKey();
+  weekDayKeys().forEach(k=>{
+    if(k>=tk||k<since) return;
+    const type=scheduledMove(new Date(k+"T12:00:00"));
+    if(type==='REST'||lsGet("move-handled-"+k)) return;
+    const log=lsGet("log-"+k);
+    if(log&&log.mode&&log.mode!=="extrema") return;
+    if(log&&log.cardioDone) return;
+    lsSet("move-handled-"+k,true);
+    const dest=scheduleMakeup(type,k,0);
+    moved.push({type, from:k, to:dest});
+  });
+  return moved;
+}
+// "⊘ no lo hice" en la caminata/rutina en casa de hoy. En Rutina Extrema la recupera más adelante
+// en la semana; en Plan Gym solo la quita de pendientes (el gym ya tiene su propia recuperación).
+function toggleSkipMove(){
+  const tk=todayKey();
+  if(todayLog.moveSkipped){
+    todayLog.moveSkipped=false;
+    localStorage.removeItem("move-handled-"+tk);
+    weekDayKeys().forEach(k=>{ const e=moveExtra(k); if(e&&e.from===tk) localStorage.removeItem("move-extra-"+k); });
+    lsSet("log-"+tk,todayLog); updateTodayUI();
+    return;
+  }
+  todayLog.moveSkipped=true; todayLog.cardioDone=false;
+  lsSet("log-"+tk,todayLog);
+  lsSet("move-handled-"+tk,true);
+  let msg;
+  if(isExtrema()){
+    const type=getTodayWorkoutType();
+    const dest=scheduleMakeup(type,tk,1);
+    msg=dest
+      ? `👍 Sin problema. La ${type==='HOME'?"rutina en casa":"caminata"} de hoy la pasé ${dayLabelOf(dest)} como recuperación.`
+      : `👍 Sin problema. Esta semana ya no queda día para recuperarla; la semana que viene empiezas de cero, sin culpa.`;
+  } else {
+    msg="👍 Anotado: hoy sin caminata. No cambia tus calorías.";
+  }
+  updateTodayUI();
+  renderMsg("assistant",msg,null,true);
+}
+function toggleExtraMove(){
+  const e=moveExtra(todayKey()); if(!e) return;
+  todayLog.extraDone=todayLog.extraDone?false:e.type;
+  if(todayLog.extraDone) todayLog.exercised=true;
+  lsSet("log-"+todayKey(),todayLog); updateTodayUI();
+}
+
+// ── 🛒 Lista de compras del PLAN GYM ──────────────────────────────────────────
+// Ingredientes de cada plato del plan gym (cantidad por porción). La lista suma TODAS las comidas
+// de la semana (lunes a domingo, incluida la ligera opcional), tal como rota el plan cada día.
+const GYM_ING={
+  "3 huevos + avena + ½ aguacate + café":{huevos:3,avena:40,aguacate:0.5,cafe:1},
+  "Tortilla de 2 huevos y claras + pan integral + fruta":{huevos:5,pan:2,frutas:1},
+  "Yogur griego + granola + nueces + 2 huevos":{yogur:1,granola:30,nueces:15,huevos:2},
+  "Revoltillo de 3 huevos + boniato hervido + tomate":{huevos:3,boniato:1,tomate:1},
+  "2 huevos + arroz integral + frijoles negros":{huevos:4,arroz:45,frijoles:40},
+  "Huevos revueltos + plátano maduro + queso fresco bajo en sal":{huevos:3,platanomaduro:1,queso:40},
+  "Batido: leche + 2 medidas proteína + avena + plátano + 1 huevo duro":{leche:300,whey:2,avena:30,platano:1,huevos:1},
+  "Pollo + arroz + ensalada (porción media)":{pollo:130,arroz:40,ensalada:1},
+  "Atún + papa cocida + verduras":{atun:1,papa:1,vegetales:1},
+  "Pan integral + pavo + plátano (energía pre-gym)":{pan:2,pavo:80,platano:1},
+  "Batido de proteína + plátano + puñado de maní":{whey:1,platano:1,mani:20},
+  "Yogur griego + fruta + 1 cda de mantequilla de maní":{yogur:1,frutas:1,mantequillamani:1},
+  "Tortilla de claras + pan integral + aguacate":{huevos:4,pan:2,aguacate:0.25},
+  "Pechuga desmenuzada + boniato + ensalada":{pollo:130,boniato:1,ensalada:1},
+  "Pechuga de pollo al horno + arroz integral + brócoli":{pollo:220,arroz:60,brocoli:0.5},
+  "Carne magra de res + batata + ensalada (≈1×/sem)":{res:200,boniato:1,ensalada:1},
+  "Salmón + arroz + espinaca salteada (≈1×/sem)":{salmon:200,arroz:60,espinaca:0.5},
+  "Pescado blanco a la plancha + arroz + ensalada":{pescado:220,arroz:60,ensalada:1},
+  "Lomo de cerdo magro + puré de calabaza + vegetales":{cerdo:200,calabaza:250,vegetales:1},
+  "Hígado de res encebollado + arroz integral + ensalada (hierro + B12, ≈1×/sem)":{visceras:200,arroz:60,ensalada:1},
+  "Molleja de pollo guisada + arroz + frijoles + ensalada":{visceras:220,arroz:45,frijoles:30,ensalada:1},
+  "Picadillo de res magro + arroz + plátano + ensalada":{res:200,arroz:45,platanomaduro:0.5,ensalada:1},
+  "Pollo guisado + yuca/boniato + ensalada grande":{pollo:220,yuca:0.5,ensalada:1},
+  "Yogur griego + semillas de calabaza":{yogur:1,semillas:20},
+  "Requesón + nueces + canela":{requeson:200,nueces:15,canela:1},
+  "Claras + queso fresco + espinaca":{huevos:5,queso:40,espinaca:0.25},
+  "Batido de proteína (caseína o whey) + leche":{whey:1,leche:250},
+  "2 huevos duros + queso fresco bajo en sal":{huevos:2,queso:60},
+  "Atún + galletas integrales + tomate":{atun:1,galletas:0.25,tomate:1},
+  "Yogur griego + maní + cacao sin azúcar":{yogur:1,mani:20,cacao:1}
+};
+// Cómo se compra cada ingrediente: categoría y texto según la cantidad total de la semana.
+const ceil=n=>Math.ceil(n-1e-9), g50=n=>Math.ceil(n/50)*50;
+const grams=n=>{const v=g50(n);return v>=1000?(Math.round(v/100)/10).toLocaleString("es-ES")+" kg":v+" g";};
+const GYM_BUY={
+  huevos:["🥩 Proteínas",n=>`${ceil(n)} huevos${n>=30?" (≈"+ceil(n/30)+(ceil(n/30)>1?" cartones":" cartón")+" de 30)":""}`],
+  pollo:["🥩 Proteínas",n=>`${grams(n)} de pechuga de pollo`],
+  res:["🥩 Proteínas",n=>`${grams(n)} de res magra o picadillo`],
+  salmon:["🥩 Proteínas",n=>`${grams(n)} de salmón`],
+  pescado:["🥩 Proteínas",n=>`${grams(n)} de pescado blanco`],
+  cerdo:["🥩 Proteínas",n=>`${grams(n)} de lomo de cerdo magro`],
+  visceras:["🥩 Proteínas",n=>`${grams(n)} de hígado de res y/o molleja`],
+  pavo:["🥩 Proteínas",n=>`${grams(n)} de pavo (fiambre o pechuga)`],
+  atun:["🥩 Proteínas",n=>`${ceil(n)} lata${ceil(n)>1?"s":""} de atún`],
+  leche:["🥛 Lácteos y batidos",n=>`${(Math.ceil(n/500)*0.5).toLocaleString("es-ES")} L de leche`],
+  yogur:["🥛 Lácteos y batidos",n=>`${ceil(n)} yogures griegos naturales`],
+  queso:["🥛 Lácteos y batidos",n=>`${grams(n)} de queso fresco bajo en sal`],
+  requeson:["🥛 Lácteos y batidos",n=>`${grams(n)} de requesón`],
+  whey:["🥛 Lácteos y batidos",n=>`Proteína en polvo (${ceil(n)} medidas esta semana)`],
+  arroz:["🍚 Carbohidratos (medidos)",n=>`${grams(n)} de arroz integral (crudo)`],
+  frijoles:["🍚 Carbohidratos (medidos)",n=>`${grams(n)} de frijoles negros secos`],
+  avena:["🍚 Carbohidratos (medidos)",n=>`${grams(n)} de avena`],
+  pan:["🍚 Carbohidratos (medidos)",n=>`Pan integral (${ceil(n)} rebanadas)`],
+  boniato:["🍚 Carbohidratos (medidos)",n=>`${ceil(n)} boniato${ceil(n)>1?"s":""} medianos`],
+  papa:["🍚 Carbohidratos (medidos)",n=>`${ceil(n)} papa${ceil(n)>1?"s":""}`],
+  yuca:["🍚 Carbohidratos (medidos)",n=>`${ceil(n)} yuca${ceil(n)>1?"s":""} pequeña${ceil(n)>1?"s":""}`],
+  platanomaduro:["🍚 Carbohidratos (medidos)",n=>`${ceil(n)} plátano${ceil(n)>1?"s":""} maduro${ceil(n)>1?"s":""}`],
+  galletas:["🍚 Carbohidratos (medidos)",n=>`${ceil(n)} paquete de galletas integrales`],
+  granola:["🍚 Carbohidratos (medidos)",n=>`${grams(n)} de granola sin azúcar`],
+  ensalada:["🥬 Vegetales y frutas",n=>`Lechuga o col (para ${ceil(n)} ensalada${ceil(n)>1?"s":""})`],
+  vegetales:["🥬 Vegetales y frutas",n=>`Vegetales variados (${ceil(n)} ${ceil(n)>1?"porciones":"porción"})`],
+  brocoli:["🥬 Vegetales y frutas",n=>`${ceil(n)} brócoli`],
+  espinaca:["🥬 Vegetales y frutas",n=>`Espinaca (${ceil(n)} mazo${ceil(n)>1?"s":""})`],
+  calabaza:["🥬 Vegetales y frutas",n=>`${grams(n)} de calabaza`],
+  tomate:["🥬 Vegetales y frutas",n=>`${ceil(n)+2} tomates (incluye para cocinar)`],
+  platano:["🥬 Vegetales y frutas",n=>`${ceil(n)} plátano${ceil(n)>1?"s":""} (fruta)`],
+  frutas:["🥬 Vegetales y frutas",n=>`${ceil(n)} fruta${ceil(n)>1?"s":""} de temporada`],
+  aguacate:["🥬 Vegetales y frutas",n=>`${ceil(n)} aguacate${ceil(n)>1?"s":""}`],
+  nueces:["🧂 Otros",n=>`${grams(n)} de nueces`],
+  mani:["🧂 Otros",n=>`${grams(n)} de maní`],
+  mantequillamani:["🧂 Otros",n=>`Mantequilla de maní (${ceil(n)} cda${ceil(n)>1?"s":""})`],
+  semillas:["🧂 Otros",n=>`${grams(n)} de semillas de calabaza`],
+  cacao:["🧂 Otros",()=>"Cacao en polvo sin azúcar"],
+  canela:["🧂 Otros",()=>"Canela"],
+  cafe:["🧂 Otros",()=>"Café o té"]
+};
+const SHOP_CATS=["🥩 Proteínas","🥛 Lácteos y batidos","🍚 Carbohidratos (medidos)","🥬 Vegetales y frutas","🧂 Otros"];
+// Platos del plan gym para una fecha: el plan guardado de ese día si existe; si no, la rotación (seed 0).
+function gymMealsFor(k){
+  const p=lsGet("plan-"+k);
+  if(p&&(p.mode||"gym")==="gym"&&p.v===PLAN_VERSION) return p.meals.map(m=>m.suggest);
+  const day=new Date(k+"T12:00:00").getDate();
+  return MEAL_SLOTS.map((s,i)=>s.opts[(day+i)%s.opts.length]);
+}
+function gymShoppingList(){
+  const tot={};
+  weekDayKeys().forEach(k=>gymMealsFor(k).forEach(txt=>{
+    const ing=GYM_ING[txt]; if(!ing) return;
+    Object.entries(ing).forEach(([id,q])=>{tot[id]=(tot[id]||0)+q;});
+  }));
+  const groups={}; SHOP_CATS.forEach(c=>groups[c]=[]);
+  Object.entries(tot).forEach(([id,q])=>{ const b=GYM_BUY[id]; if(b) groups[b[0]].push([id,b[1](q)]); });
+  groups["🥬 Vegetales y frutas"].push(["cebolla","Cebolla, ajo y ají para cocinar"]);
+  groups["🧂 Otros"].push(["spray","Aceite en spray"]);
+  return SHOP_CATS.filter(c=>groups[c].length).map(c=>({cat:c, items:groups[c]}));
+}
+function shoppingList(){ return isExtrema()?extremaShoppingList():gymShoppingList(); }
 
 // ── 🛒 Lista de compras: marcas por semana (shop-<lunes>) y precios que tú escribes (shop-prices) ──
 function shopChecks(){ return lsGet("shop-"+getWeekKey())||{}; }
@@ -2516,7 +2729,7 @@ function renderShoppingHtml(){
       </div>`;
     });
   });
-  return `<div style="font-size:11.5px;color:#888;margin-bottom:4px">Para 1 semana del menú. Marca lo que ya compraste (se reinicia cada lunes). ${done}/${all} listo.</div>
+  return `<div style="font-size:11.5px;color:#888;margin-bottom:4px">${isExtrema()?"Para 1 semana del menú.":"Suma todas las comidas de tu plan gym de esta semana (lunes a domingo, incluida la ligera opcional)."} Marca lo que ya compraste (se reinicia cada lunes). ${done}/${all} listo.</div>
     ${html}
     <div id="shop-total" style="font-size:12px;color:#ffd166;margin:10px 0 8px;line-height:1.5">${shopTotalText()}</div>
     <div style="display:flex;gap:8px;margin-bottom:6px">
@@ -2834,7 +3047,7 @@ function saveSettings(){
 function resetDay(){
   const dk=document.getElementById("reset-date").value||todayKey();
   if(!confirm(`¿Reiniciar el día ${dk}?\nSe borran comidas, ejercicio, plan y chat de ese día. No se puede deshacer.`))return;
-  ["log-","chat-","plan-","plan-anchor-","plan-times-","gym-override-","gym-recovered-"].forEach(p=>localStorage.removeItem(p+dk));
+  ["log-","chat-","plan-","plan-anchor-","plan-times-","move-extra-","move-handled-","gym-override-","gym-recovered-"].forEach(p=>localStorage.removeItem(p+dk));
   if(dk===todayKey()){
     todayLog=freshLog();
     chatHistory=[];
@@ -2854,7 +3067,7 @@ function wipeAllHistory(){
   if(!confirm("⚠️ Esto borra TODO tu historial: comidas, pesos, chat y planes de todos los días.\nTu perfil, API key y medicamentos se conservan. ¿Continuar?"))return;
   if(!confirm("Última confirmación: NO se puede deshacer. ¿Borrar todo el historial?"))return;
   Object.keys(localStorage).forEach(k=>{
-    if(/^(log-|chat-|plan-|gym-skips-|gym-override-|gym-recovered-)/.test(k)||k==="weight-history") localStorage.removeItem(k);
+    if(/^(log-|chat-|plan-|move-|gym-skips-|gym-override-|gym-recovered-)/.test(k)||k==="weight-history") localStorage.removeItem(k);
   });
   lsSet("gym-program-start",todayKey()); // empezar de cero TAMBIÉN reinicia la rotación de rutinas (vuelve a A)
   todayLog=freshLog();
@@ -2924,8 +3137,8 @@ function getWeeklyReport(){
   // 🔥 Rutina Extrema: movimiento sin gym (casa Lun/Mié/Vie, caminata el resto), agua y regla arroz/pan.
   const ex=isExtrema();
   const dowOf=l=>new Date(l.date+"T12:00:00").getDay();
-  const homeDays=logs.filter(l=>l.cardioDone&&GYM_SCHEDULE[dowOf(l)]).length;
-  const exWalkDays=logs.filter(l=>l.cardioDone&&!GYM_SCHEDULE[dowOf(l)]).length;
+  const homeDays=logs.filter(l=>l.cardioDone&&GYM_SCHEDULE[dowOf(l)]).length+logs.filter(l=>l.extraDone==="HOME").length;
+  const exWalkDays=logs.filter(l=>l.cardioDone&&!GYM_SCHEDULE[dowOf(l)]&&dowOf(l)!==0).length+logs.filter(l=>l.extraDone==="WALK").length;
   const waterLogs=logs.filter(l=>typeof l.water==="number");
   const waterAvg=waterLogs.length?Math.round(waterLogs.reduce((a,l)=>a+l.water,0)/waterLogs.length*10)/10:null;
   const carbDays=logs.filter(l=>l.carbRule).length;
